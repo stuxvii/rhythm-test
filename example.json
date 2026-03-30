@@ -1,0 +1,19 @@
+{
+    "bpm": 200.0,
+    "offset": 200.0,
+    "song": "medicine.mp3",
+    "notes": [
+        {
+            "lane": 1,
+            "time": 0.062
+        },
+        {
+            "lane": 2,
+            "time": 0.193
+        },
+        {
+            "lane": 3,
+            "time": 0.361
+        }
+    ]
+}
