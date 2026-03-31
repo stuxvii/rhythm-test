@@ -54,16 +54,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut song_playing = false;
     let tap_sfx = audio_device.new_sound(&game_config.hitsound)?;
     let mut combo = 0;
+    let lane_1_key = input::key_from_i32(game_config.lane_1_key).unwrap_or(KeyboardKey::KEY_D);
+    let lane_2_key = input::key_from_i32(game_config.lane_2_key).unwrap_or(KeyboardKey::KEY_F);
+    let lane_3_key = input::key_from_i32(game_config.lane_3_key).unwrap_or(KeyboardKey::KEY_J);
+    let lane_4_key = input::key_from_i32(game_config.lane_4_key).unwrap_or(KeyboardKey::KEY_K);
     while !rhl.window_should_close() {
         let mut d = rhl.begin_drawing(&rt);
         let screen_height = d.get_screen_height();
         let receptor_y = screen_height - NOTE_HEIGHT;
         let sc_wdth_half = d.get_screen_width() / 2;
         let lane_x_positions: [(i32, KeyboardKey); 4] = [
-            (sc_wdth_half - (2 * LANE_WIDTH), KeyboardKey::KEY_A),
-            (sc_wdth_half - (1 * LANE_WIDTH), KeyboardKey::KEY_S),
-            (sc_wdth_half + (0 * LANE_WIDTH), KeyboardKey::KEY_K),
-            (sc_wdth_half + (1 * LANE_WIDTH), KeyboardKey::KEY_L),
+            (sc_wdth_half - (2 * LANE_WIDTH), lane_1_key),
+            (sc_wdth_half - (1 * LANE_WIDTH), lane_2_key),
+            (sc_wdth_half + (0 * LANE_WIDTH), lane_3_key),
+            (sc_wdth_half + (1 * LANE_WIDTH), lane_4_key),
         ];
 
         // PROGRESS THE SONG AND MANAGE IT
@@ -96,24 +100,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // HERE WE DO CHECKING FOR KEY HITS AND DRAWING THE FIELD ZONE DIFFERENTLY
         for (lane, (x_pos, key_code)) in lane_x_positions.iter().enumerate() {
+            let acc_lane = lane + 1;
             let lane_start_pos = Vector2::new(*x_pos as f32, receptor_y as f32);
             let lane_end_pos = Vector2::new(*x_pos as f32 + LANE_WIDTH as f32, receptor_y as f32);
             if d.is_key_pressed(*key_code) {
-                tap_sfx.play();
-                cur_judge = Note::check_note_hit(&mut notes_to_draw, lane + 1, current_song_time);
+                cur_judge = Note::check_note_hit(&mut notes_to_draw, acc_lane, current_song_time);
+
+                if let Some(note) = notes_to_draw.iter_mut().find(|n| {
+                    n.lane == acc_lane
+                        && (n.state != Judgment::None && n.state != Judgment::Miss)
+                        && n.end_time.is_some()
+                        && !n.is_holding
+                        && (current_song_time - n.time).abs() < Judgment::Okay.threshold()
+                }) {
+                    note.is_holding = true;
+                }
+
                 if cur_judge == Judgment::Ehhh {
                     combo = 0;
                 } else if cur_judge != Judgment::None {
-                    println!("{}", cur_judge);
                     combo += 1;
                 }
 
-                // the thick: 5. here leaves a small gap where the hitzone is visible, kinda sucks on really high dpi screens.
                 d.draw_line_ex(lane_start_pos, lane_end_pos, 10., Color::WHITE);
+                tap_sfx.play();
             } else if d.is_key_down(*key_code) {
                 d.draw_line_ex(lane_start_pos, lane_end_pos, 10., Color::LIGHTGRAY);
             } else {
                 d.draw_line_ex(lane_start_pos, lane_end_pos, 10., Color::GRAY);
+                for note in notes_to_draw.iter_mut().filter(|n| n.is_holding && n.lane == acc_lane) {
+                    let end_t = note.end_time.unwrap_or(note.time);
+                    if d.is_key_up(*key_code) {
+                        if current_song_time < end_t - Judgment::Okay.threshold() {
+                            note.is_holding = false;
+                            note.state = Judgment::Miss;
+                            cur_judge = Judgment::Miss;
+                            combo = 0;
+                            println!("stopped holding {:#?}", key_code);
+                            println!("current_song_time: {current_song_time}");
+                            println!("note_end: {}", end_t - Judgment::Okay.threshold());
+                        } else if current_song_time >= end_t {
+                            note.is_holding = false;
+                        }
+                    }
+                }
             }
         }
 
@@ -145,32 +175,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         d.clear_background(Color::DARKPURPLE);
         for note in notes_to_draw.iter() {
             let time_diff = note.time - current_song_time;
-            let effective_beats = time_diff as f32 * (bpm / 60.0);
-
             let scroll_factor = (screen_height as f32 * scroll_speed) / 50.;
-            let distance_from_receptor_y = effective_beats * scroll_factor;
-            let note_y = receptor_y - NOTE_HEIGHT - distance_from_receptor_y as i32;
 
-            if note_y > screen_height {
-                continue;
+            let note_y = receptor_y - NOTE_HEIGHT - (time_diff * (bpm / 60.0) * scroll_factor) as i32;
+
+            let note_x = lane_x_positions[note.lane - 1].0;
+            let color = if note.state == Judgment::Miss { Color::RED } else { Color::LIGHTBLUE };
+
+            if let Some(end_time) = note.end_time {
+                let duration_beats = (end_time - note.time) * (bpm / 60.0);
+                let body_height = (duration_beats * scroll_factor) as i32;
+                let body_y = note_y - body_height;
+
+                d.draw_rectangle(note_x, body_y, LANE_WIDTH, body_height, color);
             }
 
-            if note_y < receptor_y - screen_height {
-                continue;
-            }
-
-            if note.state == Judgment::None || note.state == Judgment::Miss {
-                let lane_index = note.lane as usize;
-                let note_x = lane_x_positions[lane_index - 1].0;
-
-                let color = if note.state == Judgment::Miss {
-                    Color::RED
-                } else {
-                    Color::color_from_hsv(0., 0.6, 1.)
-                };
-
-                d.draw_rectangle(note_x, note_y as i32, LANE_WIDTH, NOTE_HEIGHT as i32, color);
-            }
+            d.draw_rectangle(note_x, note_y, LANE_WIDTH, NOTE_HEIGHT, color);
         }
 
         let fps = d.get_fps();

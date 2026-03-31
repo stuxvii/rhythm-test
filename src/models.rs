@@ -10,18 +10,30 @@ use serde::Deserialize;
 pub struct Note {
     pub lane: usize,
     pub time: f32,
+    pub end_time: Option<f32>,
 
     #[serde(default)]
     pub accuracy: f32,
     #[serde(default)]
     pub state: Judgment,
     #[serde(default)]
-    pub(crate) empty: bool,
+    pub is_holding: bool,
+    #[serde(default)]
+    pub empty: bool,
 }
 
 impl Note {
     pub fn is_missed(&self, current_time: f32) -> bool {
-        self.state == Judgment::None && current_time > self.time + Judgment::Miss.threshold()
+        if self.is_holding { return false; }
+
+        let target_time = 
+        if self.end_time.is_some_and(|a| a != 0.) {
+            self.end_time.unwrap_or(self.time)
+        } else {
+            self.time
+        };
+
+        self.state == Judgment::None && current_time > target_time + Judgment::Miss.threshold()
     }
 
     pub fn check_note_hit(notes: &mut [Note], lane: usize, current_time: f32) -> Judgment {
@@ -64,6 +76,10 @@ pub struct GameConfig {
     pub hitsound: String,
     pub autoplay: bool,
     pub quit_after_song_end: bool,
+    pub lane_1_key: i32, 
+    pub lane_2_key: i32, 
+    pub lane_3_key: i32, 
+    pub lane_4_key: i32, 
 }
 
 impl GameConfig {
