@@ -1,10 +1,7 @@
 /target
 *.mp3
-*.wav
 *.opus
-*.map
-*.json
 *.qua
 Cargo.lock
-!taiko_ka.wav
 !example.json
+charts
