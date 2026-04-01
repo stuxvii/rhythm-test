@@ -3,7 +3,7 @@
     "max_fps": 120,
     "hitsound": "hitsounds/taiko_ka.wav",
     "autoplay": false,
-    "quit_after_song_end": true,
+    "quit_after_song_end": false,
     "lane_1_key": 65,
     "lane_2_key": 83,
     "lane_3_key": 75,

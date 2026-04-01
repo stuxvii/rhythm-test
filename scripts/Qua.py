@@ -1,67 +1,41 @@
 import sys
-import re
+import yaml
 import json
 
-def get_trailing_number(s):
-    m = re.search(r"[-+]?\d*\.?\d+|[-+]?\d+", s) 
-    return float(m.group()) if m else 0.0
+def parse_song_data(file_path):
+    with open(file_path, 'r') as f:
+        data = yaml.safe_load(f)
 
-class SongData:
-    def __init__(self):
-        self.notes = []
-        self.bpm = 0.0
-        self.offset = 0.0
-        self.song = ""
-        self.name = ""
+    bpm = 0.0
+    if "TimingPoints" in data and isinstance(data["TimingPoints"], list):
+        bpm = float(data["TimingPoints"][0].get("Bpm", 0.0))
 
-class Note:
-    def __init__(self, time, lane, end_time):
-        self.time = time
-        self.lane = lane
-        self.end_time = end_time
-
-song_data = SongData()
-
-with open(sys.argv[1]) as f:
-    current_note = None
-    going_thru_hitobjects = False
-
-    for line in f:
-        line = line.strip()
-        
-        if "Bpm:" in line:
-            song_data.bpm = get_trailing_number(line)
-        elif "AudioFile:" in line:
-            song_data.song = line.partition("AudioFile:")[2].strip()
-        elif "Title:" in line:
-            song_data.name = line.partition("Title:")[2].strip()
-        elif "HitObjects:" in line:
-            going_thru_hitobjects = True
-            continue
-
-        if going_thru_hitobjects:
-            if line.startswith("-"):
-                if current_note:
-                    song_data.notes.append(current_note)
-                val = get_trailing_number(line)
-                current_note = Note(val, 0, 0) 
+    processed_notes = []
+    hit_objects = data.get("HitObjects", [])
+    
+    if isinstance(hit_objects, list):
+        for obj in hit_objects:
+            lane = int(obj.get("Lane", 0))
+            time = float(obj.get("StartTime", 0)) / 1000
+            end_time = float(obj.get("EndTime", 0)) / 1000
             
-            elif "Lane:" in line and current_note:
-                current_note.lane = int(get_trailing_number(line))
-            elif "EndTime:" in line and current_note:
-                current_note.end_time = get_trailing_number(line)
+            processed_notes.append([lane, time, end_time])
 
-    if current_note:
-        song_data.notes.append(current_note)
+    output_data = {
+        "bpm": bpm,
+        "offset": 0.0,
+        "song": data.get("AudioFile", ""),
+        "name": data.get("Title", ""),
+        "notes": processed_notes
+    }
 
-output_data = {
-    "bpm": song_data.bpm,
-    "offset": song_data.offset,
-    "song": song_data.song, 
-    "name": song_data.name, 
-    "notes": [
-        [int(n.lane), n.time/1000, n.end_time/1000] for n in song_data.notes
-    ]
-}
+    return output_data
 
-print(json.dumps(output_data, separators=(',', ':')))
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python Qua.py <filename>")
+        sys.exit(1)
+
+    result = parse_song_data(sys.argv[1])
+    
+    print(json.dumps(result, separators=(',', ':')))
