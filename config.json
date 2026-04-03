@@ -1,8 +1,7 @@
 {
-    "scroll_speed": 30.0,
-    "max_fps": 120,
+    "scroll_speed": 20.0,
+    "max_fps": 60,
     "hitsound": "hitsounds/taiko_ka.wav",
-    "autoplay": false,
     "quit_after_song_end": false,
     "lane_1_key": 65,
     "lane_2_key": 83,

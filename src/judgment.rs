@@ -1,3 +1,4 @@
+use raylib::color::Color;
 use serde::Deserialize;
 use std::fmt;
 
@@ -64,5 +65,57 @@ impl fmt::Display for Judgment {
             Self::None     => "",
         };
         write!(f, "{}", s)
+    }
+}
+
+pub enum Rating {
+    S,
+    A,
+    B,
+    C,
+    D,
+    F
+}
+
+impl Rating {
+    pub fn display_info(&self) -> (&str, raylib::prelude::Color) {
+        let string = match self {
+            Self::S => "S!!!",
+            Self::A => "A!!",
+            Self::B => "B!",
+            Self::C => "C",
+            Self::D => "D",
+            Self::F => "F",
+        };
+        let color = match self {
+            Self::S => Color::GOLD,
+            Self::A => Color::GREEN,
+            Self::B => Color::BLUE,
+            Self::C => Color::PINK,
+            Self::D => Color::RED,
+            Self::F => Color::DARKRED,
+        };
+
+        (string, color)
+    }
+    pub fn threshold(&self) -> f32 {
+        match self {
+            Self::S => 95.,
+            Self::A => 90.,
+            Self::B => 80.,
+            Self::C => 70.,
+            Self::D => 60.,
+            Self::F => 0.,
+        }
+    }
+
+    pub fn from_time(percentage: f32) -> Self {
+        if percentage >= Self::S.threshold() { Self::S }
+        else if percentage >= Self::A.threshold() { Self::A }
+        else if percentage >= Self::B.threshold()    { Self::B }
+        else if percentage >= Self::C.threshold()    { Self::C }
+        else if percentage >= Self::D.threshold()    { Self::D }
+        else if percentage >= Self::F.threshold()    { Self::F }
+        else { Self::F }
     }
 }

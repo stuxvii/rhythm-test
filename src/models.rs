@@ -7,8 +7,8 @@ use raylib::{
 };
 use serde::Deserialize;
 
-use std::{fs::{self, File}, path::PathBuf};
 use std::path::Path;
+use std::{fs, path::PathBuf};
 
 #[derive(Debug, Deserialize)]
 struct QuaFile {
@@ -17,15 +17,25 @@ struct QuaFile {
     #[serde(rename = "AudioFile")]
     audio_file: String,
     #[serde(rename = "TimingPoints")]
-    timing_points: Vec<QuaTimingPoint>,
+    timing_points: Vec<TimingPoint>,
+    #[serde(rename = "SliderVelocities")]
+    slider_velocities: Vec<SliderVelocities>,
     #[serde(rename = "HitObjects")]
     hit_objects: Vec<QuaHitObject>,
 }
 
-#[derive(Debug, Deserialize)]
-struct QuaTimingPoint {
+#[derive(Debug, Deserialize, Clone)]
+pub struct SliderVelocities {
     #[serde(rename = "StartTime")]
     start_time: f32,
+    #[serde(rename = "Multiplier")]
+    multiplier: Option<f32>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TimingPoint {
+    #[serde(rename = "StartTime")]
+    start_time: Option<f32>,
     #[serde(rename = "Bpm")]
     bpm: f32,
 }
@@ -38,6 +48,13 @@ struct QuaHitObject {
     lane: usize,
     #[serde(rename = "EndTime", default)]
     end_time: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct SvPoint {
+    pub start_time: f32, // in seconds
+    pub multiplier: f32,
+    pub visual_pos: f32, // cumulative visual time
 }
 
 #[derive(Debug, Deserialize, Clone, Copy)]
@@ -85,32 +102,32 @@ impl Note {
     }
 
     pub fn accuracy(notes: &Vec<Note>) -> f32 {
-        let judged_notes: Vec<&Note> = notes.iter().filter(|n| n.state != Judgment::None).collect();
-        if judged_notes.is_empty() {
+        let judged_notes = notes.iter().filter(|n| n.state != Judgment::None);
+
+        let count = judged_notes.clone().count();
+        if count == 0 {
             return 100.0;
         }
 
-        let total_weight: f32 = judged_notes.iter().map(|n| n.state.weight()).sum();
-        (total_weight / judged_notes.len() as f32) * 100.0
+        let total_weight: f32 = judged_notes.map(|n| n.state.weight()).sum();
+        (total_weight / count as f32) * 100.0
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct SongData {
-    pub bpm: f32,
+    bpm: Vec<TimingPoint>,
+    sv: Vec<SliderVelocities>,
     pub name: String,
     pub song: String,
     pub offset: f32,
     pub notes: Vec<Note>,
+    pub computed_sv: Vec<SvPoint>,
 }
 
 impl SongData {
-    pub fn load_qua_to_song_data<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
-        let file = File::open(path)?;
-        let content = std::io::BufReader::new(file);
-
-        let qua: QuaFile = serde_yaml::from_reader(content)?;
-        let bpm = qua.timing_points.first().map(|tp| tp.bpm).unwrap_or(120.0);
+    pub fn load_qua_to_song_data(content: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let qua: QuaFile = serde_yaml::from_str(content)?;
 
         let notes = qua
             .hit_objects
@@ -128,7 +145,9 @@ impl SongData {
             .collect();
 
         Ok(Self {
-            bpm,
+            computed_sv: SongData::precompute_sv(qua.slider_velocities.clone()),
+            sv: qua.slider_velocities,
+            bpm: qua.timing_points,
             name: qua.title,
             song: qua.audio_file,
             offset: 0.0,
@@ -143,10 +162,6 @@ impl SongData {
             Ok(s) => {
                 if let Some(ext) = map_path.extension() {
                     let song_data: SongData = match ext.to_str() {
-                        Some("json") => match serde_json::from_str::<SongData>(&s) {
-                            Ok(song_data) => song_data,
-                            Err(e) => return Err(format!("JSON Error: {}", e).into()),
-                        },
                         Some("qua") => match SongData::load_qua_to_song_data(&s) {
                             Ok(song_data) => song_data,
                             Err(e) => return Err(format!("Quaver Error: {}", e).into()),
@@ -165,6 +180,46 @@ impl SongData {
         };
         Ok(song_path)
     }
+
+    pub fn precompute_sv(mut sv_list: Vec<SliderVelocities>) -> Vec<SvPoint> {
+        sv_list.sort_by(|a, b| a.start_time.partial_cmp(&b.start_time).unwrap());
+
+        let mut computed = Vec::new();
+        let mut last_visual_pos = 0.0;
+        let mut last_time = 0.0;
+        let mut last_mult = 1.0;
+
+        for sv in sv_list {
+            let start_time_secs = sv.start_time / 1000.0;
+            let time_passed = start_time_secs - last_time;
+
+            last_visual_pos += time_passed * last_mult;
+
+            computed.push(SvPoint {
+                start_time: start_time_secs,
+                multiplier: sv.multiplier.unwrap_or(1.),
+                visual_pos: last_visual_pos,
+            });
+
+            last_time = start_time_secs;
+            last_mult = sv.multiplier.unwrap_or(1.0);
+        }
+        computed
+    }
+
+    pub fn bpm(&self, current_time: f32) -> f32 {
+        let x = self.bpm.iter().filter(|a| a.start_time < Some(current_time)).last();
+        if let Some(tp) = x { tp.bpm } else { 120. }
+    }
+
+    pub fn get_visual_time(&self, time: f32) -> f32 {
+        let iidx = self.computed_sv.partition_point(|s| s.start_time <= time);
+        if iidx == 0 {
+            return time;
+        }
+        let point = &self.computed_sv[iidx - 1];
+        point.visual_pos + (time - point.start_time) * point.multiplier
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -172,6 +227,7 @@ pub struct GameConfig {
     pub scroll_speed: f32,
     pub max_fps: u32,
     pub hitsound: String,
+    #[serde(skip)]
     pub autoplay: bool,
     pub lane_1_key: i32,
     pub lane_2_key: i32,
@@ -193,7 +249,16 @@ pub enum Align {
 }
 
 impl Align {
-    pub fn draw_text(d: &mut RaylibDrawHandle, text: &str, vertical: Align, horizontal: Align, font_size: i32, color: Color, offset: Option<Vector2>) {
+    pub fn draw_text(
+        d: &mut RaylibDrawHandle,
+        text: &str,
+        vertical: Align,
+        horizontal: Align,
+        font_size: i32,
+        color: Color,
+        offset: Option<Vector2>,
+        shadow: bool,
+    ) {
         let text_width = d.measure_text(text, font_size);
         let mut x = match horizontal {
             Align::Start => 0,
@@ -211,7 +276,14 @@ impl Align {
             y += v.y as i32;
         }
 
-        d.draw_text(text, x, y - 2, font_size, color);
+        if shadow {
+            let opposite_color = Color::new(255 - color.r, 255 - color.g, 255 - color.b, 255);
+            d.draw_text(text, x+1, y - 1, font_size, opposite_color);
+            d.draw_text(text, x+1, y + 3, font_size, opposite_color);
+            d.draw_text(text, x-1, y + 1, font_size, opposite_color);
+            d.draw_text(text, x-1, y - 3, font_size, opposite_color);
+        }
+        d.draw_text(text, x, y -2, font_size, color);
     }
 }
 
@@ -227,7 +299,7 @@ impl ScreenDimension {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 pub enum Screens {
     Menu,
     Game,
