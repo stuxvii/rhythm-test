@@ -33,7 +33,7 @@ pub fn draw_results(
     Align::draw_text(&mut d, "Press space to go back...", Align::End, Align::Middle, 20, Color::WHITE, Some(Vector2::new(0.,-10.)), false);
 
     if d.is_key_pressed(KeyboardKey::KEY_SPACE) {
-        *in_game_state = ProgramState::new(in_game_state.lanes, in_game_state.receptor_y);
+        *in_game_state = ProgramState::new(vec![], in_game_state.receptor_y);
         *song = None;
     }
 }

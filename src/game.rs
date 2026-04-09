@@ -17,7 +17,7 @@ pub fn draw_ui(
         let visual_diff = note_visual_time - current_visual_time;
         let note_y = in_game_state.receptor_y - (visual_diff * scroll_speed) as i32;
 
-        let note_x = in_game_state.lanes[note.lane - 1].0;
+        let note_x = *in_game_state.lanes.get(note.lane - 1).unwrap();
         let color = if note.state == Judgment::Miss { Color::RED } else { Color::WHITE };
 
         if let Some(end_time) = note.end_time {
@@ -25,10 +25,10 @@ pub fn draw_ui(
             let body_height = ((end_visual_time - note_visual_time) * scroll_speed) as i32;
             let body_y = note_y - body_height;
 
-            d.draw_rectangle(note_x, body_y, LANE_WIDTH, body_height, color);
+            d.draw_rectangle(note_x.0 - LANE_WIDTH/2, body_y, LANE_WIDTH, body_height, color);
         }
 
-        d.draw_rectangle(note_x, note_y - NOTE_HEIGHT, LANE_WIDTH, NOTE_HEIGHT, color);
+        d.draw_rectangle(note_x.0 - LANE_WIDTH/2, note_y - NOTE_HEIGHT, LANE_WIDTH, NOTE_HEIGHT, color);
     }
 
     if let Some(last_note) = in_game_state.notes_to_draw.last() {
@@ -57,7 +57,7 @@ pub fn draw_ui(
         Align::draw_text(&mut d, &text_cur_time, Align::End, Align::Start, NOTE_HEIGHT, FG_COLOR, offset, false);
     }
 
-    let accuracy_txt = if game_config.autoplay {
+    let precision_txt = if game_config.autoplay {
         format!("AUTOPLAY")
     } else {
         format!("{:.2}%", Note::accuracy(&in_game_state.notes_to_draw).clamp(0., 100.))
@@ -65,12 +65,49 @@ pub fn draw_ui(
     let misses: Vec<&Note> = in_game_state.notes_to_draw.iter().filter(|n| n.state == Judgment::Miss).collect();
     let misses_txt = format!("Misses: {}", misses.len());
     let combo_txt = format!("{}", in_game_state.combo);
-    let judg_txt = format!("{}", in_game_state.cur_judge);
+    let judg_txt = format!("{}", Judgment::from_time(in_game_state.current_accuracy));
+    let accuracy_txt = format!("{:.2}", in_game_state.current_accuracy);
 
-    Align::draw_text(&mut d, &accuracy_txt, Align::Start, Align::Middle, 20, BG_COLOR, None, true);
+    let x = Align::calculate_position(&mut d, Align::Middle, Align::Middle, Some(Vector2::new(0., -45.)));
+    let opposite_color = Color::new(255 - BG_COLOR.r, 255 - BG_COLOR.g, 255 - BG_COLOR.b, 255);
+    d.draw_poly(
+        Vector2::new(x.0 as f32 + (in_game_state.current_accuracy * 10.), x.1 as f32 + 1.),
+        3,
+        10.,
+        90.,
+        opposite_color,
+    );
+    d.draw_poly(
+        Vector2::new(x.0 as f32 + (in_game_state.current_accuracy * 10.), x.1 as f32),
+        3,
+        10.,
+        90.,
+        BG_COLOR,
+    );
+
+    Align::draw_text(
+        &mut d,
+        &accuracy_txt,
+        Align::Middle,
+        Align::Middle,
+        20,
+        BG_COLOR,
+        Some(Vector2::new(0., -20.)),
+        true,
+    );
+    Align::draw_text(&mut d, &precision_txt, Align::Start, Align::Middle, 20, BG_COLOR, None, true);
     Align::draw_text(&mut d, &misses_txt, Align::Start, Align::End, 20, BG_COLOR, None, false);
     Align::draw_text(&mut d, &judg_txt, Align::Middle, Align::Middle, 30, BG_COLOR, None, true);
-    Align::draw_text(&mut d, &combo_txt, Align::Middle, Align::Middle, 20, BG_COLOR, Some(Vector2::new(0., 20.)), true);
+    Align::draw_text(
+        &mut d,
+        &combo_txt,
+        Align::Middle,
+        Align::Middle,
+        20,
+        BG_COLOR,
+        Some(Vector2::new(0., 20.)),
+        true,
+    );
 }
 
 pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, in_game_state: &mut ProgramState, tap_sfx: &Sound) {
@@ -79,10 +116,10 @@ pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, in_game_state: &mut ProgramSta
     let mut lane_end_pos: Vector2;
     for (lane, (x_pos, key_code)) in in_game_state.lanes.iter().enumerate() {
         let acc_lane = lane + 1;
-        lane_start_pos = Vector2::new(*x_pos as f32, in_game_state.receptor_y as f32);
-        lane_end_pos = Vector2::new(*x_pos as f32 + LANE_WIDTH as f32, in_game_state.receptor_y as f32);
+        lane_start_pos = Vector2::new(*x_pos as f32 - LANE_WIDTH as f32/2., in_game_state.receptor_y as f32);
+        lane_end_pos = Vector2::new(*x_pos as f32 + LANE_WIDTH as f32/2., in_game_state.receptor_y as f32);
         if d.is_key_pressed(*key_code) {
-            in_game_state.cur_judge = Note::check_note_hit(&mut in_game_state.notes_to_draw, acc_lane, in_game_state.current_song_timer);
+            in_game_state.current_accuracy = Note::check_note_hit(&mut in_game_state.notes_to_draw, acc_lane, in_game_state.current_song_timer);
 
             if let Some(note) = in_game_state.notes_to_draw.iter_mut().find(|n| {
                 n.lane == acc_lane
@@ -94,9 +131,9 @@ pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, in_game_state: &mut ProgramSta
                 note.is_holding = true;
             }
 
-            if in_game_state.cur_judge == Judgment::Ehhh {
+            if Judgment::from_time(in_game_state.current_accuracy) == Judgment::Ehhh {
                 in_game_state.combo = 0;
-            } else if in_game_state.cur_judge != Judgment::None {
+            } else if Judgment::from_time(in_game_state.current_accuracy) != Judgment::None {
                 in_game_state.combo += 1;
             }
 
@@ -111,7 +148,7 @@ pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, in_game_state: &mut ProgramSta
                     if in_game_state.current_song_timer < end_t - Judgment::Okay.threshold() {
                         note.is_holding = false;
                         note.state = Judgment::Miss;
-                        in_game_state.cur_judge = Judgment::Miss;
+                        in_game_state.current_accuracy = 0.;
                         in_game_state.combo = 0;
                     } else if in_game_state.current_song_timer >= end_t {
                         note.is_holding = false;
@@ -167,9 +204,9 @@ pub fn game_loop(
 ) {
     // PROGRESS THE SONG AND MANAGE IT
     update_music(in_game_state, song, d.get_frame_time());
-    for (x_pos, _) in in_game_state.lanes {
-        d.draw_rectangle(x_pos, 0, LANE_WIDTH, screen_dimensions.h, Color::new(16, 16, 16, 255));
-        d.draw_rectangle(x_pos, 0, 2, screen_dimensions.h, Color::LIGHTGRAY);
+    for (x_pos, _) in in_game_state.lanes.clone() {
+        d.draw_rectangle(x_pos-LANE_WIDTH/2, 0, LANE_WIDTH, screen_dimensions.h, Color::new(16, 16, 16, 255));
+        d.draw_rectangle(x_pos-LANE_WIDTH/2, 0, 2, screen_dimensions.h, Color::LIGHTGRAY);
     }
 
     // HERE WE DO CHECKING FOR KEY HITS AND DRAWING THE FIELD ZONE DIFFERENTLY
@@ -179,12 +216,12 @@ pub fn game_loop(
         for note in in_game_state.notes_to_draw.iter_mut() {
             if in_game_state.current_song_timer > note.time && note.state == Judgment::None {
                 note.state = Judgment::Flawless;
-                in_game_state.cur_judge = note.state;
+                in_game_state.current_accuracy = note.accuracy;
                 tap_sfx.play();
                 in_game_state.combo += 1;
 
                 let lane_start_pos = Vector2::new(in_game_state.lanes[note.lane - 1].0 as f32, in_game_state.receptor_y as f32);
-                let lane_end_pos = Vector2::new(in_game_state.lanes[note.lane - 1].0 as f32 + LANE_WIDTH as f32, in_game_state.receptor_y as f32);
+                let lane_end_pos =   Vector2::new(in_game_state.lanes[note.lane - 1].0 as f32 + LANE_WIDTH as f32, in_game_state.receptor_y as f32);
                 d.draw_line_ex(lane_start_pos, lane_end_pos, 2., Color::GRAY);
             }
         }
@@ -193,7 +230,7 @@ pub fn game_loop(
             if note.is_missed(in_game_state.current_song_timer) {
                 note.state = Judgment::Miss; // since we immediately set to miss, this check wont pass the next time it's made
                 note.accuracy = 10.;
-                in_game_state.cur_judge = note.state;
+                in_game_state.current_accuracy = note.accuracy;
                 in_game_state.combo = 0;
             }
         }

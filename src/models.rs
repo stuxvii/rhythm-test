@@ -14,6 +14,10 @@ use std::{fs, path::PathBuf};
 struct QuaFile {
     #[serde(rename = "Title")]
     title: String,
+    #[serde(rename = "DifficultyName")]
+    difficulty_name: String,
+    #[serde(rename = "Mode")]
+    mode: String,
     #[serde(rename = "AudioFile")]
     audio_file: String,
     #[serde(rename = "TimingPoints")]
@@ -42,7 +46,7 @@ pub struct TimingPoint {
 
 #[derive(Debug, Deserialize)]
 struct QuaHitObject {
-    #[serde(rename = "StartTime")]
+    #[serde(rename = "StartTime", default)]
     start_time: f32,
     #[serde(rename = "Lane")]
     lane: usize,
@@ -88,7 +92,7 @@ impl Note {
         self.state == Judgment::None && current_time > target_time + Judgment::Miss.threshold()
     }
 
-    pub fn check_note_hit(notes: &mut [Note], lane: usize, current_time: f32) -> Judgment {
+    pub fn check_note_hit(notes: &mut [Note], lane: usize, current_time: f32) -> f32 {
         if let Some(note) = notes
             .iter_mut()
             .find(|n| n.lane == lane && n.state == Judgment::None && (n.time - current_time).abs() <= Judgment::Miss.threshold())
@@ -96,9 +100,9 @@ impl Note {
             note.accuracy = note.time - current_time;
             note.state = Judgment::from_time(note.accuracy.abs());
 
-            return note.state;
+            return note.accuracy;
         }
-        Judgment::None
+        0.
     }
 
     pub fn accuracy(notes: &Vec<Note>) -> f32 {
@@ -119,6 +123,8 @@ pub struct SongData {
     bpm: Vec<TimingPoint>,
     sv: Vec<SliderVelocities>,
     pub name: String,
+    pub difficulty_name: String,
+    pub lanes: i32,
     pub song: String,
     pub offset: f32,
     pub notes: Vec<Note>,
@@ -144,12 +150,16 @@ impl SongData {
             })
             .collect();
 
+        let lanes: i32 = qua.mode.chars().filter(|c| c.is_digit(10)).collect::<String>().parse().expect("Not a number");
+
         Ok(Self {
             computed_sv: SongData::precompute_sv(qua.slider_velocities.clone()),
             sv: qua.slider_velocities,
             bpm: qua.timing_points,
             name: qua.title,
             song: qua.audio_file,
+            difficulty_name: qua.difficulty_name,
+            lanes,
             offset: 0.0,
             notes,
         })
@@ -233,6 +243,9 @@ pub struct GameConfig {
     pub lane_2_key: i32,
     pub lane_3_key: i32,
     pub lane_4_key: i32,
+    pub lane_5_key: i32,
+    pub lane_6_key: i32,
+    pub lane_7_key: i32
 }
 
 impl GameConfig {
@@ -278,12 +291,32 @@ impl Align {
 
         if shadow {
             let opposite_color = Color::new(255 - color.r, 255 - color.g, 255 - color.b, 255);
-            d.draw_text(text, x+1, y - 1, font_size, opposite_color);
-            d.draw_text(text, x+1, y + 3, font_size, opposite_color);
-            d.draw_text(text, x-1, y + 1, font_size, opposite_color);
-            d.draw_text(text, x-1, y - 3, font_size, opposite_color);
+            d.draw_text(text, x + 1, y - 1, font_size, opposite_color);
+            d.draw_text(text, x + 1, y + 3, font_size, opposite_color);
+            d.draw_text(text, x - 1, y + 1, font_size, opposite_color);
+            d.draw_text(text, x - 1, y - 3, font_size, opposite_color);
         }
-        d.draw_text(text, x, y -2, font_size, color);
+        d.draw_text(text, x, y - 2, font_size, color);
+    }
+
+    pub fn calculate_position(d: &mut RaylibDrawHandle, vertical: Align, horizontal: Align, offset: Option<Vector2>) -> (i32, i32) {
+        let mut x = match horizontal {
+            Align::Start => 0,
+            Align::Middle => (d.get_screen_width() / 2),
+            Align::End => d.get_screen_width(),
+        };
+        let mut y = match vertical {
+            Align::Start => 0,
+            Align::Middle => (d.get_screen_height() / 2),
+            Align::End => d.get_screen_height(),
+        };
+
+        if let Some(v) = offset {
+            x += v.x as i32;
+            y += v.y as i32;
+        }
+
+        (x, y)
     }
 }
 
@@ -307,19 +340,19 @@ pub enum Screens {
 }
 
 pub struct ProgramState {
-    pub lanes: [(i32, KeyboardKey); 4],
+    pub lanes: Vec<(i32, KeyboardKey)>,
     pub receptor_y: i32,
     pub current_song_timer: f32,
     pub current_timer: f32,
     pub notes_to_draw: Vec<Note>,
     pub combo: i32,
-    pub cur_judge: Judgment,
+    pub current_accuracy: f32,
     pub current_screen: Screens,
     pub song_data: Option<SongData>,
 }
 
 impl ProgramState {
-    pub fn new(l: [(i32, KeyboardKey); 4], r: i32) -> ProgramState {
+    pub fn new(l: Vec<(i32, KeyboardKey)>, r: i32) -> ProgramState {
         ProgramState {
             current_song_timer: 0.0,
             current_timer: 0.0,
@@ -327,7 +360,7 @@ impl ProgramState {
             receptor_y: r,
             notes_to_draw: vec![],
             combo: 0,
-            cur_judge: Judgment::None,
+            current_accuracy: 0.,
             current_screen: Screens::Menu,
             song_data: None,
         }
