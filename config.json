@@ -1,13 +1,1 @@
-{
-    "scroll_speed": 20.0,
-    "max_fps": 60,
-    "hitsound": "hitsounds/taiko_ka.wav",
-    "quit_after_song_end": false,
-    "lane_1_key": 65,
-    "lane_2_key": 83,
-    "lane_3_key": 75,
-    "lane_4_key": 76,
-    "lane_5_key": 65,
-    "lane_6_key": 83,
-    "lane_7_key": 75
-}
+{"hitsound":"hitsounds/taiko_ka.wav","input_offset":-0.03999999910593033,"lane_1_key":65,"lane_2_key":83,"lane_3_key":75,"lane_4_key":76,"lane_5_key":65,"lane_6_key":83,"lane_7_key":75,"max_fps":60,"scroll_speed":22.0,"visual_offset":0.0}

@@ -1,9 +1,10 @@
-use crate::judgment::Judgment;
+use crate::{UIElements, judgment::Judgment};
 use raylib::{
     color::Color,
     ffi::KeyboardKey,
     math::Vector2,
     prelude::{RaylibDraw, RaylibDrawHandle},
+    text::RaylibFont,
 };
 use serde::Deserialize;
 
@@ -20,8 +21,6 @@ struct QuaFile {
     mode: String,
     #[serde(rename = "AudioFile")]
     audio_file: String,
-    #[serde(rename = "TimingPoints")]
-    timing_points: Vec<TimingPoint>,
     #[serde(rename = "SliderVelocities")]
     slider_velocities: Vec<SliderVelocities>,
     #[serde(rename = "HitObjects")]
@@ -31,17 +30,11 @@ struct QuaFile {
 #[derive(Debug, Deserialize, Clone)]
 pub struct SliderVelocities {
     #[serde(rename = "StartTime")]
+    #[serde(default)]
     start_time: f32,
     #[serde(rename = "Multiplier")]
+    #[serde(default)]
     multiplier: Option<f32>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct TimingPoint {
-    #[serde(rename = "StartTime")]
-    start_time: Option<f32>,
-    #[serde(rename = "Bpm")]
-    bpm: f32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -92,7 +85,7 @@ impl Note {
         self.state == Judgment::None && current_time > target_time + Judgment::Miss.threshold()
     }
 
-    pub fn check_note_hit(notes: &mut [Note], lane: usize, current_time: f32) -> f32 {
+    pub fn check_note_hit(notes: &mut [Note], lane: usize, current_time: f32) -> Option<f32> {
         if let Some(note) = notes
             .iter_mut()
             .find(|n| n.lane == lane && n.state == Judgment::None && (n.time - current_time).abs() <= Judgment::Miss.threshold())
@@ -100,9 +93,9 @@ impl Note {
             note.accuracy = note.time - current_time;
             note.state = Judgment::from_time(note.accuracy.abs());
 
-            return note.accuracy;
+            return Some(note.accuracy);
         }
-        0.
+        None
     }
 
     pub fn accuracy(notes: &Vec<Note>) -> f32 {
@@ -120,13 +113,11 @@ impl Note {
 
 #[derive(Debug, Clone)]
 pub struct SongData {
-    bpm: Vec<TimingPoint>,
-    sv: Vec<SliderVelocities>,
+    // sv: Vec<SliderVelocities>,
     pub name: String,
     pub difficulty_name: String,
     pub lanes: i32,
     pub song: String,
-    pub offset: f32,
     pub notes: Vec<Note>,
     pub computed_sv: Vec<SvPoint>,
 }
@@ -150,17 +141,18 @@ impl SongData {
             })
             .collect();
 
-        let lanes: i32 = qua.mode.chars().filter(|c| c.is_digit(10)).collect::<String>().parse().expect("Not a number");
+        let lanes: i32 = qua.mode.chars().filter(|c| c.is_digit(10)).collect::<String>().parse()?;
+        if lanes > 7 {
+            return Err("Too many lanes! (max: 7)".into());
+        }
 
         Ok(Self {
             computed_sv: SongData::precompute_sv(qua.slider_velocities.clone()),
-            sv: qua.slider_velocities,
-            bpm: qua.timing_points,
+            // sv: qua.slider_velocities,
             name: qua.title,
             song: qua.audio_file,
             difficulty_name: qua.difficulty_name,
             lanes,
-            offset: 0.0,
             notes,
         })
     }
@@ -217,11 +209,6 @@ impl SongData {
         computed
     }
 
-    pub fn bpm(&self, current_time: f32) -> f32 {
-        let x = self.bpm.iter().filter(|a| a.start_time < Some(current_time)).last();
-        if let Some(tp) = x { tp.bpm } else { 120. }
-    }
-
     pub fn get_visual_time(&self, time: f32) -> f32 {
         let iidx = self.computed_sv.partition_point(|s| s.start_time <= time);
         if iidx == 0 {
@@ -235,6 +222,10 @@ impl SongData {
 #[derive(Debug, Deserialize)]
 pub struct GameConfig {
     pub scroll_speed: f32,
+    #[serde(default)]
+    pub visual_offset: f32,
+    #[serde(default)]
+    pub input_offset: f32,
     pub max_fps: u32,
     pub hitsound: String,
     #[serde(skip)]
@@ -245,7 +236,27 @@ pub struct GameConfig {
     pub lane_4_key: i32,
     pub lane_5_key: i32,
     pub lane_6_key: i32,
-    pub lane_7_key: i32
+    pub lane_7_key: i32,
+}
+
+impl Default for GameConfig {
+    fn default() -> Self {
+        Self {
+            scroll_speed: 20.,
+            visual_offset: 0.,
+            input_offset: 0.,
+            max_fps: 60,
+            hitsound: "hitsounds/taiko_ka.wav".into(),
+            autoplay: Default::default(),
+            lane_1_key: Default::default(),
+            lane_2_key: Default::default(),
+            lane_3_key: Default::default(),
+            lane_4_key: Default::default(),
+            lane_5_key: Default::default(),
+            lane_6_key: Default::default(),
+            lane_7_key: Default::default(),
+        }
+    }
 }
 
 impl GameConfig {
@@ -269,51 +280,54 @@ impl Align {
         horizontal: Align,
         font_size: i32,
         color: Color,
-        offset: Option<Vector2>,
+        offset: Option<(i32, i32)>,
         shadow: bool,
+        ui_state: &UIElements,
     ) {
-        let text_width = d.measure_text(text, font_size);
-        let mut x = match horizontal {
-            Align::Start => 0,
-            Align::Middle => (d.get_screen_width() / 2) - (text_width / 2),
-            Align::End => d.get_screen_width() - text_width,
-        };
-        let mut y = match vertical {
-            Align::Start => 0,
-            Align::Middle => (d.get_screen_height() / 2) - (font_size / 2),
-            Align::End => d.get_screen_height() - font_size,
-        };
+        if let Some(ref font) = ui_state.fonts.get(0) {
+            let text_width = font.measure_text(text, font_size as f32, 1.).x as i32;
+            let mut x = match horizontal {
+                Align::Start => 0,
+                Align::Middle => (d.get_screen_width() / 2) - (text_width / 2),
+                Align::End => d.get_screen_width() - text_width,
+            };
+            let mut y = match vertical {
+                Align::Start => 0,
+                Align::Middle => (d.get_screen_height() / 2) - (font_size / 2),
+                Align::End => d.get_screen_height() - font_size,
+            };
 
-        if let Some(v) = offset {
-            x += v.x as i32;
-            y += v.y as i32;
-        }
+            if let Some(v) = offset {
+                x += v.0;
+                y += v.1;
+            }
 
-        if shadow {
-            let opposite_color = Color::new(255 - color.r, 255 - color.g, 255 - color.b, 255);
-            d.draw_text(text, x + 1, y - 1, font_size, opposite_color);
-            d.draw_text(text, x + 1, y + 3, font_size, opposite_color);
-            d.draw_text(text, x - 1, y + 1, font_size, opposite_color);
-            d.draw_text(text, x - 1, y - 3, font_size, opposite_color);
+            if shadow {
+                let opposite_color = Color::new(255 - color.r, 255 - color.g, 255 - color.b, 255);
+                d.draw_text_ex(font, text, Vector2::new(x as f32 + 1., y as f32 - 1.), font_size as f32, 1., opposite_color);
+                d.draw_text_ex(font, text, Vector2::new(x as f32 + 1., y as f32 + 3.), font_size as f32, 1., opposite_color);
+                d.draw_text_ex(font, text, Vector2::new(x as f32 - 1., y as f32 + 1.), font_size as f32, 1., opposite_color);
+                d.draw_text_ex(font, text, Vector2::new(x as f32 - 1., y as f32 - 3.), font_size as f32, 1., opposite_color);
+            }
+            d.draw_text_ex(font, text, Vector2::new(x as f32, y as f32 - 2.), font_size as f32, 1., color);
         }
-        d.draw_text(text, x, y - 2, font_size, color);
     }
 
-    pub fn calculate_position(d: &mut RaylibDrawHandle, vertical: Align, horizontal: Align, offset: Option<Vector2>) -> (i32, i32) {
+    pub fn calculate_position(d: &mut RaylibDrawHandle, vertical: Align, horizontal: Align, offset: Option<(i32, i32)>) -> (i32, i32) {
         let mut x = match horizontal {
             Align::Start => 0,
-            Align::Middle => (d.get_screen_width() / 2),
+            Align::Middle => d.get_screen_width() / 2,
             Align::End => d.get_screen_width(),
         };
         let mut y = match vertical {
             Align::Start => 0,
-            Align::Middle => (d.get_screen_height() / 2),
+            Align::Middle => d.get_screen_height() / 2,
             Align::End => d.get_screen_height(),
         };
 
         if let Some(v) = offset {
-            x += v.x as i32;
-            y += v.y as i32;
+            x += v.0 as i32;
+            y += v.1 as i32;
         }
 
         (x, y)

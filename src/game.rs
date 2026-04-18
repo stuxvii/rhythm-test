@@ -1,4 +1,4 @@
-use crate::{BG_COLOR, FG_COLOR, LANE_WIDTH, NOTE_HEIGHT, ProgramState, ScreenDimension, Screens, judgment::Judgment, models::*};
+use crate::{ProgramState, ScreenDimension, Screens, UIElements, judgment::Judgment, models::*};
 use raylib::prelude::*;
 
 // ALL THE PURELY VISUAL STUFF!!
@@ -8,11 +8,12 @@ pub fn draw_ui(
     in_game_state: &mut ProgramState,
     game_config: &GameConfig,
     song_data: &SongData,
+    ui_state: &UIElements,
 ) {
     let current_visual_time = song_data.get_visual_time(in_game_state.current_song_timer);
     let scroll_speed = (screen_dimensions.h as f32 * game_config.scroll_speed) / 10.0;
     for note in in_game_state.notes_to_draw.iter() {
-        let note_visual_time = song_data.get_visual_time(note.time);
+        let note_visual_time = song_data.get_visual_time(note.time) + game_config.visual_offset;
 
         let visual_diff = note_visual_time - current_visual_time;
         let note_y = in_game_state.receptor_y - (visual_diff * scroll_speed) as i32;
@@ -25,24 +26,36 @@ pub fn draw_ui(
             let body_height = ((end_visual_time - note_visual_time) * scroll_speed) as i32;
             let body_y = note_y - body_height;
 
-            d.draw_rectangle(note_x.0 - LANE_WIDTH/2, body_y, LANE_WIDTH, body_height, color);
+            d.draw_rectangle(note_x.0 - ui_state.lane_width / 2, body_y, ui_state.lane_width, body_height, color);
         }
 
-        d.draw_rectangle(note_x.0 - LANE_WIDTH/2, note_y - NOTE_HEIGHT, LANE_WIDTH, NOTE_HEIGHT, color);
+        d.draw_rectangle(
+            note_x.0 - ui_state.lane_width / 2,
+            note_y - ui_state.note_height,
+            ui_state.lane_width,
+            ui_state.note_height,
+            color,
+        );
     }
 
     if let Some(last_note) = in_game_state.notes_to_draw.last() {
         let complete_ratio = in_game_state.current_song_timer / last_note.time;
-        d.draw_rectangle(0, screen_dimensions.h - NOTE_HEIGHT, screen_dimensions.w, NOTE_HEIGHT, Color::GRAY);
         d.draw_rectangle(
             0,
-            screen_dimensions.h - NOTE_HEIGHT,
+            screen_dimensions.h - ui_state.note_height,
+            screen_dimensions.w,
+            ui_state.note_height,
+            Color::GRAY,
+        );
+        d.draw_rectangle(
+            0,
+            screen_dimensions.h - ui_state.note_height,
             (complete_ratio * screen_dimensions.w as f32) as i32,
-            NOTE_HEIGHT,
-            BG_COLOR,
+            ui_state.note_height,
+            ui_state.bg_color,
         );
 
-        let offset = Some(Vector2::new(0., 3.));
+        let offset = Some((0, 3));
 
         let minutes_cur_time = (in_game_state.current_song_timer as i32 / 60) % 60;
         let seconds_cur_time = in_game_state.current_song_timer as i32 % 60;
@@ -52,9 +65,39 @@ pub fn draw_ui(
         let seconds_rem_time = (last_note.time - in_game_state.current_song_timer) as i32 % 60;
         let text_rem_time = format!("{:0>2}:{:0>2}", minutes_rem_time, seconds_rem_time);
 
-        Align::draw_text(&mut d, &song_data.name, Align::End, Align::Middle, NOTE_HEIGHT, FG_COLOR, offset, false);
-        Align::draw_text(&mut d, &text_rem_time, Align::End, Align::End, NOTE_HEIGHT, FG_COLOR, offset, false);
-        Align::draw_text(&mut d, &text_cur_time, Align::End, Align::Start, NOTE_HEIGHT, FG_COLOR, offset, false);
+        Align::draw_text(
+            &mut d,
+            &song_data.name,
+            Align::End,
+            Align::Middle,
+            ui_state.note_height,
+            ui_state.fg_color,
+            offset,
+            false,
+            &ui_state,
+        );
+        Align::draw_text(
+            &mut d,
+            &text_rem_time,
+            Align::End,
+            Align::End,
+            ui_state.note_height,
+            ui_state.fg_color,
+            offset,
+            false,
+            &ui_state,
+        );
+        Align::draw_text(
+            &mut d,
+            &text_cur_time,
+            Align::End,
+            Align::Start,
+            ui_state.note_height,
+            ui_state.fg_color,
+            offset,
+            false,
+            &ui_state,
+        );
     }
 
     let precision_txt = if game_config.autoplay {
@@ -66,75 +109,96 @@ pub fn draw_ui(
     let misses_txt = format!("Misses: {}", misses.len());
     let combo_txt = format!("{}", in_game_state.combo);
     let judg_txt = format!("{}", Judgment::from_time(in_game_state.current_accuracy));
-    let accuracy_txt = format!("{:.2}", in_game_state.current_accuracy);
+    if in_game_state.current_accuracy < 1. {
+        let accuracy_txt = format!("{:.2}", in_game_state.current_accuracy);
 
-    let x = Align::calculate_position(&mut d, Align::Middle, Align::Middle, Some(Vector2::new(0., -45.)));
-    let opposite_color = Color::new(255 - BG_COLOR.r, 255 - BG_COLOR.g, 255 - BG_COLOR.b, 255);
-    d.draw_poly(
-        Vector2::new(x.0 as f32 + (in_game_state.current_accuracy * 10.), x.1 as f32 + 1.),
-        3,
-        10.,
-        90.,
-        opposite_color,
-    );
-    d.draw_poly(
-        Vector2::new(x.0 as f32 + (in_game_state.current_accuracy * 10.), x.1 as f32),
-        3,
-        10.,
-        90.,
-        BG_COLOR,
-    );
+        let x = Align::calculate_position(&mut d, Align::Middle, Align::Middle, Some((0, -45)));
+        let opposite_color = Color::new(255 - ui_state.fg_color.r, 255 - ui_state.fg_color.g, 255 - ui_state.fg_color.b, 255);
+        d.draw_poly(
+            Vector2::new(x.0 as f32 + (in_game_state.current_accuracy * 10.), x.1 as f32 + 1.),
+            3,
+            10.,
+            90.,
+            opposite_color,
+        );
+        d.draw_poly(
+            Vector2::new(x.0 as f32 + (in_game_state.current_accuracy * 10.), x.1 as f32),
+            3,
+            10.,
+            90.,
+            ui_state.fg_color,
+        );
 
+        Align::draw_text(
+            &mut d,
+            &accuracy_txt,
+            Align::Middle,
+            Align::Middle,
+            20,
+            ui_state.fg_color,
+            Some((0, -20)),
+            true,
+            &ui_state,
+        );
+    }
     Align::draw_text(
         &mut d,
-        &accuracy_txt,
-        Align::Middle,
+        &precision_txt,
+        Align::Start,
         Align::Middle,
         20,
-        BG_COLOR,
-        Some(Vector2::new(0., -20.)),
+        ui_state.fg_color,
+        None,
         true,
+        &ui_state,
     );
-    Align::draw_text(&mut d, &precision_txt, Align::Start, Align::Middle, 20, BG_COLOR, None, true);
-    Align::draw_text(&mut d, &misses_txt, Align::Start, Align::End, 20, BG_COLOR, None, false);
-    Align::draw_text(&mut d, &judg_txt, Align::Middle, Align::Middle, 30, BG_COLOR, None, true);
+    Align::draw_text(&mut d, &misses_txt, Align::Start, Align::End, 20, ui_state.fg_color, None, false, &ui_state);
+    Align::draw_text(&mut d, &judg_txt, Align::Middle, Align::Middle, 30, ui_state.fg_color, None, true, &ui_state);
     Align::draw_text(
         &mut d,
         &combo_txt,
         Align::Middle,
         Align::Middle,
         20,
-        BG_COLOR,
-        Some(Vector2::new(0., 20.)),
+        ui_state.fg_color,
+        Some((0, 20)),
         true,
+        &ui_state,
     );
 }
 
-pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, in_game_state: &mut ProgramState, tap_sfx: &Sound) {
+pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, in_game_state: &mut ProgramState, tap_sfx: &Sound, game_config: &GameConfig, ui_state: &UIElements) {
     let mut hitzone_color = Color::GRAY;
     let mut lane_start_pos: Vector2;
     let mut lane_end_pos: Vector2;
     for (lane, (x_pos, key_code)) in in_game_state.lanes.iter().enumerate() {
         let acc_lane = lane + 1;
-        lane_start_pos = Vector2::new(*x_pos as f32 - LANE_WIDTH as f32/2., in_game_state.receptor_y as f32);
-        lane_end_pos = Vector2::new(*x_pos as f32 + LANE_WIDTH as f32/2., in_game_state.receptor_y as f32);
+        lane_start_pos = Vector2::new(*x_pos as f32 - ui_state.lane_width as f32 / 2., in_game_state.receptor_y as f32);
+        lane_end_pos = Vector2::new(*x_pos as f32 + ui_state.lane_width as f32 / 2., in_game_state.receptor_y as f32);
         if d.is_key_pressed(*key_code) {
-            in_game_state.current_accuracy = Note::check_note_hit(&mut in_game_state.notes_to_draw, acc_lane, in_game_state.current_song_timer);
+            if let Some(accuracy) = Note::check_note_hit(
+                &mut in_game_state.notes_to_draw,
+                acc_lane,
+                in_game_state.current_song_timer + game_config.input_offset,
+            ) {
+                in_game_state.current_accuracy = accuracy;
+                if let Some(note) = in_game_state.notes_to_draw.iter_mut().find(|n| {
+                    n.lane == acc_lane
+                        && (n.state != Judgment::None && n.state != Judgment::Miss)
+                        && n.end_time.is_some()
+                        && !n.is_holding
+                        && (in_game_state.current_song_timer - n.time).abs() < Judgment::Good.threshold()
+                }) {
+                    note.is_holding = true;
+                }
 
-            if let Some(note) = in_game_state.notes_to_draw.iter_mut().find(|n| {
-                n.lane == acc_lane
-                    && (n.state != Judgment::None && n.state != Judgment::Miss)
-                    && n.end_time.is_some()
-                    && !n.is_holding
-                    && (in_game_state.current_song_timer - n.time).abs() < Judgment::Okay.threshold()
-            }) {
-                note.is_holding = true;
-            }
-
-            if Judgment::from_time(in_game_state.current_accuracy) == Judgment::Ehhh {
-                in_game_state.combo = 0;
-            } else if Judgment::from_time(in_game_state.current_accuracy) != Judgment::None {
-                in_game_state.combo += 1;
+                if Judgment::from_time(accuracy) == Judgment::Okay {
+                    in_game_state.combo = 0;
+                } else if Judgment::from_time(accuracy) != Judgment::None {
+                    in_game_state.combo += 1;
+                }
+            } else {
+                in_game_state.current_accuracy = 0.;
             }
 
             tap_sfx.play();
@@ -145,7 +209,7 @@ pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, in_game_state: &mut ProgramSta
             for note in in_game_state.notes_to_draw.iter_mut().filter(|n| n.is_holding && n.lane == acc_lane) {
                 let end_t = note.end_time.unwrap_or(note.time);
                 if d.is_key_up(*key_code) {
-                    if in_game_state.current_song_timer < end_t - Judgment::Okay.threshold() {
+                    if in_game_state.current_song_timer < end_t - Judgment::Good.threshold() {
                         note.is_holding = false;
                         note.state = Judgment::Miss;
                         in_game_state.current_accuracy = 0.;
@@ -161,37 +225,34 @@ pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, in_game_state: &mut ProgramSta
 }
 
 pub fn update_music(in_game_state: &mut ProgramState, song: &mut Music, frame_time: f32) {
-    if in_game_state.current_song_timer > 0.0 {
-        if !song.is_stream_playing() {
-            song.play_stream();
-            song.looping = false;
-            song.seek_stream(in_game_state.song_data.clone().unwrap().offset);
-        } else {
-            let last_note_time: f32;
-            if let Some(t) = in_game_state.notes_to_draw.last().unwrap().end_time {
-                if t == 0. {
-                    last_note_time = in_game_state.notes_to_draw.last().unwrap().time;
-                } else {
-                    last_note_time = t;
-                }
-            } else {
-                last_note_time = in_game_state.notes_to_draw.last().unwrap().time;
-            }
-            if in_game_state.current_song_timer > last_note_time {
-                in_game_state.current_screen = Screens::Results;
-                return;
-            } else if in_game_state.current_song_timer < song.get_time_length() {
-                song.update_stream();
-                in_game_state.current_song_timer = song.get_time_played();
-            } else {
-                in_game_state.current_song_timer += frame_time;
-            }
-        }
-    } else {
-        in_game_state.current_song_timer = in_game_state.current_timer + (in_game_state.song_data.clone().unwrap().offset);
-    }
-
     in_game_state.current_timer += frame_time;
+
+    if let Some(song_data) = &in_game_state.song_data {
+        if in_game_state.current_song_timer > 0.0 {
+            if !song.is_stream_playing() {
+                song.play_stream();
+                song.looping = false;
+                song.seek_stream(in_game_state.current_song_timer);
+            } else {
+                let last_note_time: f32 = if let Some(t) = in_game_state.notes_to_draw.last().unwrap().end_time {
+                    if t == 0. { in_game_state.notes_to_draw.last().unwrap().time } else { t }
+                } else {
+                    in_game_state.notes_to_draw.last().unwrap().time
+                };
+                if in_game_state.current_song_timer > last_note_time {
+                    in_game_state.current_screen = Screens::Results;
+                    return;
+                } else if in_game_state.current_song_timer < song.get_time_length() {
+                    song.update_stream();
+                    in_game_state.current_song_timer = song.get_time_played();
+                } else {
+                    in_game_state.current_song_timer += frame_time;
+                }
+            }
+        } else {
+            in_game_state.current_song_timer = in_game_state.current_timer + (song_data.notes.get(0).unwrap().time - 3.);
+        }
+    }
 }
 
 pub fn game_loop(
@@ -201,27 +262,37 @@ pub fn game_loop(
     song: &mut Music,
     tap_sfx: &Sound,
     game_config: &GameConfig,
+    ui_state: &UIElements,
 ) {
     // PROGRESS THE SONG AND MANAGE IT
     update_music(in_game_state, song, d.get_frame_time());
     for (x_pos, _) in in_game_state.lanes.clone() {
-        d.draw_rectangle(x_pos-LANE_WIDTH/2, 0, LANE_WIDTH, screen_dimensions.h, Color::new(16, 16, 16, 255));
-        d.draw_rectangle(x_pos-LANE_WIDTH/2, 0, 2, screen_dimensions.h, Color::LIGHTGRAY);
+        d.draw_rectangle(
+            x_pos - ui_state.lane_width / 2,
+            0,
+            ui_state.lane_width,
+            screen_dimensions.h,
+            Color::new(16, 16, 16, 255),
+        );
+        d.draw_rectangle(x_pos - ui_state.lane_width / 2, 0, 2, screen_dimensions.h, Color::LIGHTGRAY);
     }
 
     // HERE WE DO CHECKING FOR KEY HITS AND DRAWING THE FIELD ZONE DIFFERENTLY
-    check_inputs(&mut d, in_game_state, tap_sfx);
+    check_inputs(&mut d, in_game_state, tap_sfx, game_config, ui_state);
 
     if game_config.autoplay {
         for note in in_game_state.notes_to_draw.iter_mut() {
             if in_game_state.current_song_timer > note.time && note.state == Judgment::None {
-                note.state = Judgment::Flawless;
+                note.state = Judgment::Marvelous;
                 in_game_state.current_accuracy = note.accuracy;
                 tap_sfx.play();
                 in_game_state.combo += 1;
 
                 let lane_start_pos = Vector2::new(in_game_state.lanes[note.lane - 1].0 as f32, in_game_state.receptor_y as f32);
-                let lane_end_pos =   Vector2::new(in_game_state.lanes[note.lane - 1].0 as f32 + LANE_WIDTH as f32, in_game_state.receptor_y as f32);
+                let lane_end_pos = Vector2::new(
+                    in_game_state.lanes[note.lane - 1].0 as f32 + ui_state.lane_width as f32,
+                    in_game_state.receptor_y as f32,
+                );
                 d.draw_line_ex(lane_start_pos, lane_end_pos, 2., Color::GRAY);
             }
         }
@@ -236,5 +307,12 @@ pub fn game_loop(
         }
     }
 
-    draw_ui(d, screen_dimensions, in_game_state, game_config, &in_game_state.song_data.clone().unwrap());
+    draw_ui(
+        d,
+        screen_dimensions,
+        in_game_state,
+        game_config,
+        &in_game_state.song_data.clone().unwrap(),
+        &ui_state,
+    );
 }
