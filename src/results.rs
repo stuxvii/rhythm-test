@@ -1,28 +1,22 @@
 use raylib::prelude::*;
 
 use crate::{
-    UIElements, judgment::{Judgment, Rating}, models::{Align, GameConfig, Note, ProgramState}
+    judgment::{Judgment, Rating}, models::{Align, AppState, Note}
 };
 
 pub fn draw_results(
     mut d: RaylibDrawHandle<'_>,
-    in_game_state: &mut ProgramState,
-    game_config: &GameConfig,
-    song: &mut std::option::Option<raylib::prelude::Music<'_>>,
-    ui_state: &UIElements
+    app_state: &mut AppState
 ) {
-    if let Some(song) = song {
-        song.update_stream();
-    }
-    let total_accuracy = Note::accuracy(&in_game_state.notes_to_draw).clamp(0., 100.);
+    let total_accuracy = Note::accuracy(&app_state.song_state.notes_to_draw).clamp(0., 100.);
 
-    let accuracy_txt = if game_config.autoplay {
+    let accuracy_txt = if app_state.game_config.autoplay {
         format!("AUTOPLAY")
     } else {
         format!("{:.2}%", total_accuracy)
     };
 
-    let grade_style: (String, Color) = if game_config.autoplay {
+    let grade_style: (String, Color) = if app_state.game_config.autoplay {
         (String::from("BOT"), Color::GRAY)
     } else {
         let sh = Rating::from_time(total_accuracy);
@@ -34,7 +28,7 @@ pub fn draw_results(
     use std::collections::HashMap;
 
     let mut counts = HashMap::new();
-    for note in &in_game_state.notes_to_draw {
+    for note in &app_state.song_state.notes_to_draw {
         *counts.entry(note.state).or_insert(0) += 1;
     }
 
@@ -56,7 +50,7 @@ pub fn draw_results(
         grade_style.1,
         Some((20, 20)),
         false,
-        &ui_state
+        &app_state.ui
     );
     Align::draw_text(
         &mut d,
@@ -67,7 +61,7 @@ pub fn draw_results(
         grade_style.1,
         Some((20, 110)),
         false,
-        &ui_state
+        &app_state.ui
     );
 
     for (i, judgment) in judgments.iter().enumerate() {
@@ -83,7 +77,7 @@ pub fn draw_results(
             Color::WHITE,
             Some((20, y_offset as i32)),
             false,
-            &ui_state
+            &app_state.ui
         );
     }
 
@@ -96,11 +90,6 @@ pub fn draw_results(
         Color::WHITE,
         Some((0, -10)),
         false,
-        &ui_state
+        &app_state.ui
     );
-
-    if d.is_key_pressed(KeyboardKey::KEY_SPACE) {
-        *in_game_state = ProgramState::new(vec![], in_game_state.receptor_y);
-        *song = None;
-    }
 }

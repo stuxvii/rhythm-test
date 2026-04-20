@@ -2,6 +2,7 @@ use crate::{UIElements, judgment::Judgment};
 use raylib::{
     color::Color,
     ffi::KeyboardKey,
+    input,
     math::Vector2,
     prelude::{RaylibDraw, RaylibDrawHandle},
     text::RaylibFont,
@@ -139,6 +140,7 @@ impl SongData {
                 is_holding: false,
                 empty: false,
             })
+            .filter(|obj: &Note| obj.lane < 4)
             .collect();
 
         let lanes: i32 = qua.mode.chars().filter(|c| c.is_digit(10)).collect::<String>().parse()?;
@@ -157,7 +159,7 @@ impl SongData {
         })
     }
 
-    pub fn setup_map_and_get_song(raw_path: String, in_game_state: &mut ProgramState) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    pub fn setup_map_and_get_song(raw_path: String, in_game_state: &mut SongState) -> Result<PathBuf, Box<dyn std::error::Error>> {
         let map_path = PathBuf::from(raw_path);
         let mut song_path: PathBuf = PathBuf::new();
         match fs::read_to_string(&map_path) {
@@ -219,6 +221,33 @@ impl SongData {
     }
 }
 
+pub struct AppState {
+    pub game_config: GameConfig,
+    pub viewport: Viewport,
+    pub song_state: SongState,
+    pub current_screen: Screens,
+    pub keys: Vec<KeyboardKey>,
+    pub ui: UIElements,
+}
+
+impl AppState {
+    pub fn new(game_config: GameConfig, viewport: Viewport, song_state: SongState, current_screen: Screens, ui: UIElements) -> Self {
+        AppState {
+            viewport,
+            song_state,
+            current_screen,
+            keys: vec![
+                input::key_from_i32(game_config.lane_1_key).unwrap_or(KeyboardKey::KEY_A),
+                input::key_from_i32(game_config.lane_2_key).unwrap_or(KeyboardKey::KEY_S),
+                input::key_from_i32(game_config.lane_3_key).unwrap_or(KeyboardKey::KEY_K),
+                input::key_from_i32(game_config.lane_4_key).unwrap_or(KeyboardKey::KEY_L),
+            ],
+            ui,
+            game_config,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct GameConfig {
     pub scroll_speed: f32,
@@ -234,9 +263,7 @@ pub struct GameConfig {
     pub lane_2_key: i32,
     pub lane_3_key: i32,
     pub lane_4_key: i32,
-    pub lane_5_key: i32,
-    pub lane_6_key: i32,
-    pub lane_7_key: i32,
+    pub songs_path: String,
 }
 
 impl Default for GameConfig {
@@ -247,22 +274,25 @@ impl Default for GameConfig {
             input_offset: 0.,
             max_fps: 60,
             hitsound: "hitsounds/taiko_ka.wav".into(),
-            autoplay: Default::default(),
-            lane_1_key: Default::default(),
-            lane_2_key: Default::default(),
-            lane_3_key: Default::default(),
-            lane_4_key: Default::default(),
-            lane_5_key: Default::default(),
-            lane_6_key: Default::default(),
-            lane_7_key: Default::default(),
+            autoplay: false,
+            lane_1_key: KeyboardKey::KEY_A as i32,
+            lane_2_key: KeyboardKey::KEY_S as i32,
+            lane_3_key: KeyboardKey::KEY_K as i32,
+            lane_4_key: KeyboardKey::KEY_L as i32,
+            songs_path: String::from("./charts/"),
         }
     }
 }
 
 impl GameConfig {
     pub fn load() -> Self {
-        let content = std::fs::read_to_string("config.json").expect("Failed to read config");
-        serde_json::from_str(&content).expect("Failed to parse config")
+        match std::fs::read_to_string("config.json") {
+            Ok(content) => serde_json::from_str(&content).expect("Failed to parse config"),
+            Err(error) => {
+                println!("Issue loading configuration: {error}");
+                GameConfig::default()
+            }
+        }
     }
 }
 
@@ -334,15 +364,17 @@ impl Align {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct ScreenDimension {
+#[derive(Clone)]
+pub struct Viewport {
     pub w: i32,
     pub h: i32,
+    pub lanes: Vec<(i32, KeyboardKey)>,
+    pub receptor_y: i32,
 }
 
-impl ScreenDimension {
-    pub fn new(w: i32, h: i32) -> ScreenDimension {
-        ScreenDimension { w, h }
+impl Viewport {
+    pub fn new(w: i32, h: i32, l: Vec<(i32, KeyboardKey)>, r: i32) -> Viewport {
+        Viewport { w, h, lanes: l, receptor_y: r }
     }
 }
 
@@ -351,32 +383,29 @@ pub enum Screens {
     Menu,
     Game,
     Results,
+    Songs,
 }
 
-pub struct ProgramState {
-    pub lanes: Vec<(i32, KeyboardKey)>,
-    pub receptor_y: i32,
-    pub current_song_timer: f32,
-    pub current_timer: f32,
+pub struct SongState {
+    pub song_timer: f32,
+    pub timer: f32,
     pub notes_to_draw: Vec<Note>,
     pub combo: i32,
-    pub current_accuracy: f32,
-    pub current_screen: Screens,
+    pub max_combo: i32,
+    pub accuracy: f32,
     pub song_data: Option<SongData>,
 }
 
-impl ProgramState {
-    pub fn new(l: Vec<(i32, KeyboardKey)>, r: i32) -> ProgramState {
-        ProgramState {
-            current_song_timer: 0.0,
-            current_timer: 0.0,
-            lanes: l,
-            receptor_y: r,
+impl SongState {
+    pub fn new() -> SongState {
+        SongState {
+            song_timer: 0.0,
+            timer: 0.0,
             notes_to_draw: vec![],
             combo: 0,
-            current_accuracy: 0.,
-            current_screen: Screens::Menu,
+            accuracy: 0.,
             song_data: None,
+            max_combo: 0,
         }
     }
 }
