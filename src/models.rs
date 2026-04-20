@@ -1,16 +1,24 @@
-use crate::{UIElements, judgment::Judgment};
+use crate::{judgment::Judgment};
 use raylib::{
     color::Color,
     ffi::KeyboardKey,
     input,
     math::Vector2,
     prelude::{RaylibDraw, RaylibDrawHandle},
-    text::RaylibFont,
+    text::{Font, RaylibFont},
 };
 use serde::Deserialize;
 
 use std::path::Path;
 use std::{fs, path::PathBuf};
+
+pub struct UIElements {
+    pub fonts: Vec<Font>,
+    pub lane_width: i32,
+    pub note_height: i32,
+    pub fg: Color,
+    pub bg: Color,
+}
 
 #[derive(Debug, Deserialize)]
 struct QuaFile {
@@ -77,11 +85,7 @@ impl Note {
             return false;
         }
 
-        let target_time = if self.end_time.is_some_and(|a| a != 0.) {
-            self.end_time.unwrap_or(self.time)
-        } else {
-            self.time
-        };
+        let target_time = if self.end_time.is_some_and(|a| a != 0.) { self.end_time.unwrap_or(self.time) } else { self.time };
 
         self.state == Judgment::None && current_time > target_time + Judgment::Miss.threshold()
     }
@@ -231,7 +235,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(game_config: GameConfig, viewport: Viewport, song_state: SongState, current_screen: Screens, ui: UIElements) -> Self {
+    pub fn new(viewport: Viewport, song_state: SongState, current_screen: Screens, ui: UIElements, game_config: GameConfig) -> Self {
         AppState {
             viewport,
             song_state,
@@ -246,6 +250,18 @@ impl AppState {
             game_config,
         }
     }
+    pub fn init() -> Self {
+        let game_config = GameConfig::load();
+
+        let ui: UIElements = UIElements {
+            fonts: vec![],
+            lane_width: 100,
+            note_height: 20,
+            fg: Color::WHITE,
+            bg: Color::BLACK,
+        };
+        AppState::new(Viewport::new(0, 0, vec![], 0), SongState::new(), Screens::Menu, ui, game_config)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -256,7 +272,6 @@ pub struct GameConfig {
     #[serde(default)]
     pub input_offset: f32,
     pub max_fps: u32,
-    pub hitsound: String,
     #[serde(skip)]
     pub autoplay: bool,
     pub lane_1_key: i32,
@@ -273,7 +288,6 @@ impl Default for GameConfig {
             visual_offset: 0.,
             input_offset: 0.,
             max_fps: 60,
-            hitsound: "hitsounds/taiko_ka.wav".into(),
             autoplay: false,
             lane_1_key: KeyboardKey::KEY_A as i32,
             lane_2_key: KeyboardKey::KEY_S as i32,
@@ -303,17 +317,7 @@ pub enum Align {
 }
 
 impl Align {
-    pub fn draw_text(
-        d: &mut RaylibDrawHandle,
-        text: &str,
-        vertical: Align,
-        horizontal: Align,
-        font_size: i32,
-        color: Color,
-        offset: Option<(i32, i32)>,
-        shadow: bool,
-        ui_state: &UIElements,
-    ) {
+    pub fn draw_text(d: &mut RaylibDrawHandle, text: &str, vertical: Align, horizontal: Align, font_size: i32, color: Color, offset: Option<(i32, i32)>, shadow: bool, ui_state: &UIElements) {
         if let Some(ref font) = ui_state.fonts.get(0) {
             let text_width = font.measure_text(text, font_size as f32, 1.).x as i32;
             let mut x = match horizontal {

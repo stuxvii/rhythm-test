@@ -34,13 +34,7 @@ pub fn draw_ui(mut d: RaylibDrawHandle<'_>, app_state: &AppState) {
 
         if let Some(last_note) = app_state.song_state.notes_to_draw.last() {
             let complete_ratio = app_state.song_state.song_timer / last_note.time;
-            d.draw_rectangle(
-                0,
-                app_state.viewport.h - app_state.ui.note_height,
-                app_state.viewport.w,
-                app_state.ui.note_height,
-                Color::GRAY,
-            );
+            d.draw_rectangle(0, app_state.viewport.h - app_state.ui.note_height, app_state.viewport.w, app_state.ui.note_height, Color::GRAY);
             d.draw_rectangle(
                 0,
                 app_state.viewport.h - app_state.ui.note_height,
@@ -70,17 +64,7 @@ pub fn draw_ui(mut d: RaylibDrawHandle<'_>, app_state: &AppState) {
                 false,
                 &app_state.ui,
             );
-            Align::draw_text(
-                &mut d,
-                &text_rem_time,
-                Align::End,
-                Align::End,
-                app_state.ui.note_height,
-                app_state.ui.fg,
-                offset,
-                false,
-                &app_state.ui,
-            );
+            Align::draw_text(&mut d, &text_rem_time, Align::End, Align::End, app_state.ui.note_height, app_state.ui.fg, offset, false, &app_state.ui);
             Align::draw_text(
                 &mut d,
                 &text_cur_time,
@@ -108,57 +92,15 @@ pub fn draw_ui(mut d: RaylibDrawHandle<'_>, app_state: &AppState) {
 
             let x = Align::calculate_position(&mut d, Align::Middle, Align::Middle, Some((0, -45)));
             let opposite_color = Color::new(255 - app_state.ui.fg.r, 255 - app_state.ui.fg.g, 255 - app_state.ui.fg.b, 255);
-            d.draw_poly(
-                Vector2::new(x.0 as f32 + (app_state.song_state.accuracy * 10.), x.1 as f32 + 1.),
-                3,
-                10.,
-                90.,
-                opposite_color,
-            );
-            d.draw_poly(
-                Vector2::new(x.0 as f32 + (app_state.song_state.accuracy * 10.), x.1 as f32),
-                3,
-                10.,
-                90.,
-                app_state.ui.fg,
-            );
+            d.draw_poly(Vector2::new(x.0 as f32 + (app_state.song_state.accuracy * 10.), x.1 as f32 + 1.), 3, 10., 90., opposite_color);
+            d.draw_poly(Vector2::new(x.0 as f32 + (app_state.song_state.accuracy * 10.), x.1 as f32), 3, 10., 90., app_state.ui.fg);
 
-            Align::draw_text(
-                &mut d,
-                &accuracy_txt,
-                Align::Middle,
-                Align::Middle,
-                20,
-                app_state.ui.fg,
-                Some((0, -20)),
-                true,
-                &app_state.ui,
-            );
+            Align::draw_text(&mut d, &accuracy_txt, Align::Middle, Align::Middle, 20, app_state.ui.fg, Some((0, -20)), true, &app_state.ui);
         }
-        Align::draw_text(
-            &mut d,
-            &precision_txt,
-            Align::Start,
-            Align::Middle,
-            20,
-            app_state.ui.fg,
-            None,
-            true,
-            &app_state.ui,
-        );
+        Align::draw_text(&mut d, &precision_txt, Align::Start, Align::Middle, 20, app_state.ui.fg, None, true, &app_state.ui);
         Align::draw_text(&mut d, &misses_txt, Align::Start, Align::End, 20, app_state.ui.fg, None, false, &app_state.ui);
         Align::draw_text(&mut d, &judg_txt, Align::Middle, Align::Middle, 30, app_state.ui.fg, None, true, &app_state.ui);
-        Align::draw_text(
-            &mut d,
-            &combo_txt,
-            Align::Middle,
-            Align::Middle,
-            20,
-            app_state.ui.fg,
-            Some((0, 20)),
-            true,
-            &app_state.ui,
-        );
+        Align::draw_text(&mut d, &combo_txt, Align::Middle, Align::Middle, 20, app_state.ui.fg, Some((0, 20)), true, &app_state.ui);
     }
 }
 
@@ -171,11 +113,7 @@ pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, app_state: &mut AppState, tap_
         lane_start_pos = Vector2::new(*x_pos as f32 - app_state.ui.lane_width as f32 / 2., app_state.viewport.receptor_y as f32);
         lane_end_pos = Vector2::new(*x_pos as f32 + app_state.ui.lane_width as f32 / 2., app_state.viewport.receptor_y as f32);
         if d.is_key_pressed(*key_code) {
-            if let Some(accuracy) = Note::check_note_hit(
-                &mut app_state.song_state.notes_to_draw,
-                acc_lane,
-                app_state.song_state.song_timer + app_state.game_config.input_offset,
-            ) {
+            if let Some(accuracy) = Note::check_note_hit(&mut app_state.song_state.notes_to_draw, acc_lane, app_state.song_state.song_timer + app_state.game_config.input_offset) {
                 app_state.song_state.accuracy = accuracy;
                 if let Some(note) = app_state.song_state.notes_to_draw.iter_mut().find(|n| {
                     n.lane == acc_lane
@@ -236,11 +174,7 @@ pub fn update_music(app_state: &mut AppState, song: &mut Music, frame_time: f32)
                 song.seek_stream(app_state.song_state.song_timer);
             } else {
                 let last_note_time: f32 = if let Some(t) = app_state.song_state.notes_to_draw.last().unwrap().end_time {
-                    if t == 0. {
-                        app_state.song_state.notes_to_draw.last().unwrap().time
-                    } else {
-                        t
-                    }
+                    if t == 0. { app_state.song_state.notes_to_draw.last().unwrap().time } else { t }
                 } else {
                     app_state.song_state.notes_to_draw.last().unwrap().time
                 };
@@ -264,13 +198,7 @@ pub fn game_loop(mut d: RaylibDrawHandle<'_>, mut app_state: &mut AppState, song
     // PROGRESS THE SONG AND MANAGE IT
     update_music(&mut app_state, song, d.get_frame_time());
     for (x_pos, _) in app_state.viewport.lanes.clone() {
-        d.draw_rectangle(
-            x_pos - app_state.ui.lane_width / 2,
-            0,
-            app_state.ui.lane_width,
-            app_state.viewport.h,
-            Color::new(16, 16, 16, 255),
-        );
+        d.draw_rectangle(x_pos - app_state.ui.lane_width / 2, 0, app_state.ui.lane_width, app_state.viewport.h, Color::new(16, 16, 16, 255));
         d.draw_rectangle(x_pos - app_state.ui.lane_width / 2, 0, 2, app_state.viewport.h, Color::LIGHTGRAY);
     }
 
@@ -286,10 +214,7 @@ pub fn game_loop(mut d: RaylibDrawHandle<'_>, mut app_state: &mut AppState, song
                 app_state.song_state.combo += 1;
 
                 let lane_start_pos = Vector2::new(app_state.viewport.lanes[note.lane - 1].0 as f32, app_state.viewport.receptor_y as f32);
-                let lane_end_pos = Vector2::new(
-                    app_state.viewport.lanes[note.lane - 1].0 as f32 + app_state.ui.lane_width as f32,
-                    app_state.viewport.receptor_y as f32,
-                );
+                let lane_end_pos = Vector2::new(app_state.viewport.lanes[note.lane - 1].0 as f32 + app_state.ui.lane_width as f32, app_state.viewport.receptor_y as f32);
                 d.draw_line_ex(lane_start_pos, lane_end_pos, 2., Color::GRAY);
             }
         }
