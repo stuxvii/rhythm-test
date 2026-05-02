@@ -1,3 +1,5 @@
+use std::option;
+
 use crate::{Screens, design, judgment::Judgment, models::*};
 use raylib::prelude::*;
 
@@ -84,7 +86,7 @@ pub fn draw_ui(mut d: RaylibDrawHandle<'_>, app_state: &AppState) {
     }
 }
 
-pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, app_state: &mut AppState, tap_sfx: &Sound) {
+pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, app_state: &mut AppState, current_tap: &Option<Sound<'_>>) {
     let mut hitzone_color = Color::GRAY;
     let mut lane_start_pos: Vector2;
     let mut lane_end_pos: Vector2;
@@ -118,7 +120,9 @@ pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, app_state: &mut AppState, tap_
                     app_state.song_state.accuracy = 0.;
                 }
 
-                tap_sfx.play();
+                if let Some(tap_sfx) = &current_tap {
+                    tap_sfx.play();
+                }
             } else if d.is_key_down(*key_code) {
                 hitzone_color = Color::WHITE;
             } else {
@@ -145,68 +149,71 @@ pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, app_state: &mut AppState, tap_
     }
 }
 
-pub fn update_music(app_state: &mut AppState, song: &mut Music, frame_time: f32) {
+pub fn update_music(app_state: &mut AppState, frame_time: f32, mut current_song: &Option<Music<'_>>) {
     app_state.song_state.timer += frame_time;
-    if let Some(song_data) = &app_state.song_state.song_data {
-        if app_state.song_state.song_timer > 0.0 {
-            if !song.is_stream_playing() {
-                song.play_stream();
-                song.looping = false;
-                song.seek_stream(app_state.song_state.song_timer);
-            } else {
-                let last_note_time: f32 = if let Some(t) = song_data.notes.last().unwrap().end_time {
-                    if t == 0. { song_data.notes.last().unwrap().time } else { t }
+    if let Some(song) = &mut current_song {
+        if let Some(song_data) = &app_state.song_state.song_data {
+            if app_state.song_state.song_timer > 0.0 {
+                if !song.is_stream_playing() {
+                    song.play_stream();
+                    song.seek_stream(app_state.song_state.song_timer);
                 } else {
-                    song_data.notes.last().unwrap().time
-                };
-                if app_state.song_state.song_timer > last_note_time {
-                    app_state.current_screen = Screens::Results;
-                    return;
-                } else if app_state.song_state.song_timer < song.get_time_length() {
-                    song.update_stream();
-                    app_state.song_state.song_timer = song.get_time_played();
-                } else {
-                    app_state.song_state.song_timer += frame_time;
+                    let last_note_time: f32 = if let Some(t) = song_data.notes.last().unwrap().end_time {
+                        if t == 0. { song_data.notes.last().unwrap().time } else { t }
+                    } else {
+                        song_data.notes.last().unwrap().time
+                    };
+                    if app_state.song_state.song_timer > last_note_time {
+                        app_state.current_screen = Screens::Results;
+                        return;
+                    } else if app_state.song_state.song_timer < song.get_time_length() {
+                        song.update_stream();
+                        app_state.song_state.song_timer = song.get_time_played();
+                    } else {
+                        app_state.song_state.song_timer += frame_time;
+                    }
                 }
+            } else {
+                app_state.song_state.song_timer = app_state.song_state.timer + (song_data.notes.get(0).unwrap().time - 3.);
             }
-        } else {
-            app_state.song_state.song_timer = app_state.song_state.timer + (song_data.notes.get(0).unwrap().time - 3.);
         }
     }
 }
 
-pub fn game_loop(mut d: RaylibDrawHandle<'_>, mut app_state: &mut AppState, song: &mut Music<'_>, tap_sfx: &Sound<'_>) {
+pub fn game_loop(mut d: RaylibDrawHandle<'_>, mut app_state: &mut AppState, current_tap: &Option<Sound<'_>>, current_song: &Option<Music<'_>>) {
     // PROGRESS THE SONG AND MANAGE IT
-    update_music(&mut app_state, song, d.get_frame_time());
+
+    update_music(&mut app_state, d.get_frame_time(), current_song);
     for (x_pos, _) in app_state.viewport.lanes.clone() {
         d.draw_rectangle(x_pos - app_state.ui.lane_width / 2, 0, app_state.ui.lane_width, app_state.viewport.h, Color::new(16, 16, 16, 255));
         // d.draw_rectangle(x_pos - app_state.ui.lane_width / 2, 0, 2, app_state.viewport.h, Color::LIGHTGRAY);
     }
 
     // HERE WE DO CHECKING FOR KEY HITS AND DRAWING THE FIELD ZONE DIFFERENTLY
-    check_inputs(&mut d, &mut app_state, &tap_sfx);
+    check_inputs(&mut d, &mut app_state, current_tap);
+    if let Some(tap_sfx) = &current_tap {
+        if let Some(song_data) = &mut app_state.song_state.song_data {
+            if app_state.song_modifiers.autoplay {
+                for note in song_data.notes.iter_mut() {
+                    if app_state.song_state.song_timer > note.time && note.state == Judgment::None {
+                        note.state = Judgment::Marvelous;
+                        app_state.song_state.accuracy = note.accuracy;
+                        tap_sfx.play();
+                        app_state.song_state.combo += 1;
 
-    if let Some(song_data) = &mut app_state.song_state.song_data {
-        if app_state.song_modifiers.autoplay {
-            for note in song_data.notes.iter_mut() {
-                if app_state.song_state.song_timer > note.time && note.state == Judgment::None {
-                    note.state = Judgment::Marvelous;
-                    app_state.song_state.accuracy = note.accuracy;
-                    tap_sfx.play();
-                    app_state.song_state.combo += 1;
-
-                    let lane_start_pos = Vector2::new(app_state.viewport.lanes[note.lane - 1].0 as f32, app_state.viewport.receptor_y as f32);
-                    let lane_end_pos = Vector2::new(app_state.viewport.lanes[note.lane - 1].0 as f32 + app_state.ui.lane_width as f32, app_state.viewport.receptor_y as f32);
-                    d.draw_line_ex(lane_start_pos, lane_end_pos, 2., Color::GRAY);
+                        let lane_start_pos = Vector2::new(app_state.viewport.lanes[note.lane - 1].0 as f32, app_state.viewport.receptor_y as f32);
+                        let lane_end_pos = Vector2::new(app_state.viewport.lanes[note.lane - 1].0 as f32 + app_state.ui.lane_width as f32, app_state.viewport.receptor_y as f32);
+                        d.draw_line_ex(lane_start_pos, lane_end_pos, 2., Color::GRAY);
+                    }
                 }
-            }
-        } else {
-            for note in song_data.notes.iter_mut() {
-                if note.is_missed(app_state.song_state.song_timer) {
-                    note.state = Judgment::Miss; // since we immediately set to miss, this check wont pass the next time it's made
-                    note.accuracy = 10.;
-                    app_state.song_state.accuracy = note.accuracy;
-                    app_state.song_state.combo = 0;
+            } else {
+                for note in song_data.notes.iter_mut() {
+                    if note.is_missed(app_state.song_state.song_timer) {
+                        note.state = Judgment::Miss; // since we immediately set to miss, this check wont pass the next time it's made
+                        note.accuracy = 10.;
+                        app_state.song_state.accuracy = note.accuracy;
+                        app_state.song_state.combo = 0;
+                    }
                 }
             }
         }

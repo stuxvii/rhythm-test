@@ -7,7 +7,10 @@ use crate::{
     models::{Align, AppState, Note},
 };
 
-pub fn draw_results(mut d: RaylibDrawHandle<'_>, app_state: &mut AppState) {
+pub fn draw_results(mut d: RaylibDrawHandle<'_>, app_state: &mut AppState, current_song: &Option<Music<'_>>) {
+    if let Some(song) = current_song {
+        song.update_stream();
+    }
     if let Some(song_data) = &app_state.song_state.song_data {
         let total_accuracy = Note::accuracy(&song_data.notes).clamp(0., 100.);
         let accuracy_txt = if app_state.song_modifiers.autoplay {

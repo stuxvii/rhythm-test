@@ -82,7 +82,6 @@ pub fn load_qua_to_song_data(content: &str) -> Result<SongData, Box<dyn std::err
         difficulty_name: qua.difficulty_name,
         lanes,
         notes,
-        file_size: 0,
     })
 }
 
@@ -101,7 +100,6 @@ pub fn parse_song_data(map_path: &PathBuf) -> Result<SongData, Box<dyn std::erro
 
                 let parent_dir = map_path.parent().unwrap_or(Path::new(".")).to_path_buf();
                 song_data.song = parent_dir.join(&song_data.song).to_str().unwrap().to_string();
-                song_data.file_size = s.len();
                 return Ok(song_data);
             }
             Err(e) => return Err(format!("File Error: {}", e).into()),

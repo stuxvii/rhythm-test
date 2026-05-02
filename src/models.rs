@@ -1,5 +1,5 @@
 use crate::judgment::Judgment;
-use raylib::{color::Color, ffi::KeyboardKey, input, text::Font};
+use raylib::prelude::*;
 use serde::Deserialize;
 
 pub struct UIElements {
@@ -78,7 +78,6 @@ pub struct SongData {
     pub song: String,
     pub notes: Vec<Note>,
     pub computed_sv: Vec<SvPoint>,
-    pub file_size: usize,
 }
 
 impl SongData {
@@ -95,7 +94,7 @@ impl SongData {
 pub struct AppState {
     pub game_config: GameConfig,
     pub viewport: Viewport,
-    pub song_state: SongState,
+    pub song_state: PlayState,
     pub song_modifiers: SongModifiers,
     pub current_screen: Screens,
     pub keys: Vec<KeyboardKey>,
@@ -103,7 +102,14 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(viewport: Viewport, song_modifiers: SongModifiers, song_state: SongState, current_screen: Screens, ui: UIElements, game_config: GameConfig) -> Self {
+    pub fn new(
+        viewport: Viewport,
+        song_modifiers: SongModifiers,
+        song_state: PlayState,
+        current_screen: Screens,
+        ui: UIElements,
+        game_config: GameConfig,
+    ) -> Self {
         AppState {
             viewport,
             song_state,
@@ -119,7 +125,7 @@ impl AppState {
             song_modifiers,
         }
     }
-    pub fn init() -> Self {
+    pub fn init() -> Result<AppState, Box<dyn std::error::Error>> {
         let game_config = GameConfig::load();
 
         let ui: UIElements = UIElements {
@@ -131,7 +137,7 @@ impl AppState {
             bg: Color::BLACK,
             shadow: false,
         };
-        AppState::new(
+        let result = AppState::new(
             Viewport::new(0, 0, vec![], 0),
             SongModifiers {
                 autoplay: true,
@@ -139,11 +145,27 @@ impl AppState {
                 no_anim: false,
                 speed: 1.,
             },
-            SongState::new(),
+            PlayState::new(),
             Screens::Menu,
             ui,
-            game_config,
-        )
+            game_config
+        );
+
+        Ok(result)
+    }
+
+    pub fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "scroll_speed": self.game_config.scroll_speed,
+            "visual_offset":self.game_config.visual_offset,
+            "input_offset": self.game_config.input_offset,
+            "max_fps":      self.game_config.max_fps,
+            "lane_1_key":   self.game_config.lane_1_key,
+            "lane_2_key":   self.game_config.lane_2_key,
+            "lane_3_key":   self.game_config.lane_3_key,
+            "lane_4_key":   self.game_config.lane_4_key,
+            "songs_path":   self.game_config.songs_path,
+        })
     }
 }
 
@@ -225,7 +247,7 @@ pub enum Screens {
     Songs,
 }
 
-pub struct SongState {
+pub struct PlayState {
     pub song_timer: f32,
     pub timer: f32,
     pub combo: i32,
@@ -234,9 +256,9 @@ pub struct SongState {
     pub song_data: Option<SongData>,
 }
 
-impl SongState {
-    pub fn new() -> SongState {
-        SongState {
+impl PlayState {
+    pub fn new() -> PlayState {
+        PlayState {
             song_timer: 0.0,
             timer: 0.0,
             combo: 0,
