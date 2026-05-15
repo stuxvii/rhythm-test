@@ -1,5 +1,3 @@
-use std::option;
-
 use crate::{Screens, design, judgment::Judgment, models::*};
 use raylib::prelude::*;
 
@@ -7,9 +5,9 @@ use raylib::prelude::*;
 pub fn draw_ui(mut d: RaylibDrawHandle<'_>, app_state: &AppState) {
     if let Some(song_data) = &app_state.song_state.song_data {
         let current_visual_time = song_data.get_visual_time(app_state.song_state.song_timer, app_state.song_modifiers.sv);
-        let scroll_speed = (app_state.viewport.h as f32 * app_state.game_config.scroll_speed) / 10.0;
+        let scroll_speed = (app_state.viewport.h as f32 * app_state.config.scroll_speed) / 10.0;
         for note in song_data.notes.iter() {
-            let note_visual_time = song_data.get_visual_time(note.time, app_state.song_modifiers.sv) + app_state.game_config.visual_offset;
+            let note_visual_time = song_data.get_visual_time(note.time, app_state.song_modifiers.sv) + app_state.config.visual_offset;
 
             let visual_diff = note_visual_time - current_visual_time;
             let note_y = app_state.viewport.receptor_y - (visual_diff * scroll_speed) as i32;
@@ -74,14 +72,14 @@ pub fn draw_ui(mut d: RaylibDrawHandle<'_>, app_state: &AppState) {
 
             let x = design::calculate_position(&mut d, Align::Middle, Align::Middle, (0, -45));
             let opposite_color = Color::new(255 - app_state.ui.fg.r, 255 - app_state.ui.fg.g, 255 - app_state.ui.fg.b, 255);
-            d.draw_poly(Vector2::new(x.0 as f32 + (app_state.song_state.accuracy * 10.), x.1 as f32 + 1.), 3, 10., 90., opposite_color);
-            d.draw_poly(Vector2::new(x.0 as f32 + (app_state.song_state.accuracy * 10.), x.1 as f32), 3, 10., 90., app_state.ui.fg);
+            d.draw_poly(Vector2::new(x.0 as f32 + (app_state.song_state.accuracy * 100.), x.1 as f32 + 1.), 3, 10., 90., opposite_color);
+            d.draw_poly(Vector2::new(x.0 as f32 + (app_state.song_state.accuracy * 100.), x.1 as f32), 3, 10., 90., app_state.ui.fg);
 
-            design::draw_text(&mut d, &accuracy_txt, Align::Middle, Align::Middle, 20, app_state.ui.fg, (0, -20), &app_state.ui);
+            design::draw_text(&mut d, &accuracy_txt, Align::Middle, Align::Middle, 20, app_state.ui.fg, (0, -30), &app_state.ui);
         }
         design::draw_text(&mut d, &precision_txt, Align::Start, Align::Middle, 20, app_state.ui.fg, (0, 0), &app_state.ui);
         design::draw_text(&mut d, &misses_txt, Align::Start, Align::End, 20, app_state.ui.fg, (0, 0), &app_state.ui);
-        design::draw_text(&mut d, &judg_txt, Align::Middle, Align::Middle, 30, app_state.ui.fg, (0, 0), &app_state.ui);
+        design::draw_text(&mut d, &judg_txt, Align::Middle, Align::Middle, 30, app_state.ui.fg, (0, -15), &app_state.ui);
         design::draw_text(&mut d, &combo_txt, Align::Middle, Align::Middle, 20, app_state.ui.fg, (0, 20), &app_state.ui);
     }
 }
@@ -96,7 +94,7 @@ pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, app_state: &mut AppState, curr
             lane_start_pos = Vector2::new(*x_pos as f32 - app_state.ui.lane_width as f32 / 2., app_state.viewport.receptor_y as f32);
             lane_end_pos = Vector2::new(*x_pos as f32 + app_state.ui.lane_width as f32 / 2., app_state.viewport.receptor_y as f32);
             if d.is_key_pressed(*key_code) {
-                if let Some(accuracy) = Note::check_note_hit(&mut song_data.notes, acc_lane, app_state.song_state.song_timer + app_state.game_config.input_offset) {
+                if let Some(accuracy) = Note::check_note_hit(&mut song_data.notes, acc_lane, app_state.song_state.song_timer + app_state.config.input_offset) {
                     app_state.song_state.accuracy = accuracy;
                     if let Some(note) = song_data.notes.iter_mut().find(|n| {
                         n.lane == acc_lane
@@ -186,7 +184,6 @@ pub fn game_loop(mut d: RaylibDrawHandle<'_>, mut app_state: &mut AppState, curr
     update_music(&mut app_state, d.get_frame_time(), current_song);
     for (x_pos, _) in app_state.viewport.lanes.clone() {
         d.draw_rectangle(x_pos - app_state.ui.lane_width / 2, 0, app_state.ui.lane_width, app_state.viewport.h, Color::new(16, 16, 16, 255));
-        // d.draw_rectangle(x_pos - app_state.ui.lane_width / 2, 0, 2, app_state.viewport.h, Color::LIGHTGRAY);
     }
 
     // HERE WE DO CHECKING FOR KEY HITS AND DRAWING THE FIELD ZONE DIFFERENTLY

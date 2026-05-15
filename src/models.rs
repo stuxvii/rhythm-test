@@ -1,12 +1,13 @@
 use crate::judgment::Judgment;
 use raylib::prelude::*;
-use serde::Deserialize;
+use serde::{Deserialize, de::Error};
 
 pub struct UIElements {
     pub fonts: Vec<Font>,
     pub text_scale: i32,
     pub lane_width: i32,
     pub note_height: i32,
+    pub song_item_height: i32,
     pub fg: Color,
     pub bg: Color,
     pub shadow: bool,
@@ -71,16 +72,32 @@ impl Note {
 }
 
 #[derive(Debug, Clone)]
-pub struct SongData {
+pub struct ChartMetadata {
     pub name: String,
-    pub difficulty_name: String,
-    pub lanes: i32,
     pub song: String,
-    pub notes: Vec<Note>,
-    pub computed_sv: Vec<SvPoint>,
+    pub banner: String,
+    pub artist: String,
+    pub creator: String,
+    pub lanes: i32,
 }
 
-impl SongData {
+pub struct SongData {
+    pub name: String,
+    pub banner: String,
+    pub banner_texture: Option<Texture2D>,
+    pub difficulties: Vec<ChartData>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChartData {
+    pub name: String,
+    pub metadata: ChartMetadata,
+    pub notes: Vec<Note>,
+    pub computed_sv: Vec<SvPoint>,
+    pub hints: Vec<String>,
+}
+
+impl ChartData {
     pub fn get_visual_time(&self, time: f32, sv: bool) -> f32 {
         let iidx = self.computed_sv.partition_point(|s| s.start_time <= time);
         if iidx == 0 {
@@ -92,7 +109,7 @@ impl SongData {
 }
 
 pub struct AppState {
-    pub game_config: GameConfig,
+    pub config: GameConfig,
     pub viewport: Viewport,
     pub song_state: PlayState,
     pub song_modifiers: SongModifiers,
@@ -102,26 +119,19 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(
-        viewport: Viewport,
-        song_modifiers: SongModifiers,
-        song_state: PlayState,
-        current_screen: Screens,
-        ui: UIElements,
-        game_config: GameConfig,
-    ) -> Self {
+    pub fn new(viewport: Viewport, song_modifiers: SongModifiers, song_state: PlayState, current_screen: Screens, ui: UIElements, config: GameConfig) -> Self {
         AppState {
             viewport,
             song_state,
             current_screen,
             keys: vec![
-                input::key_from_i32(game_config.lane_1_key).unwrap_or(KeyboardKey::KEY_A),
-                input::key_from_i32(game_config.lane_2_key).unwrap_or(KeyboardKey::KEY_S),
-                input::key_from_i32(game_config.lane_3_key).unwrap_or(KeyboardKey::KEY_K),
-                input::key_from_i32(game_config.lane_4_key).unwrap_or(KeyboardKey::KEY_L),
+                config.keybinds.left,
+                config.keybinds.down,
+                config.keybinds.up,
+                config.keybinds.right,
             ],
             ui,
-            game_config,
+            config,
             song_modifiers,
         }
     }
@@ -133,22 +143,23 @@ impl AppState {
             lane_width: 100,
             note_height: 20,
             text_scale: 10,
+            song_item_height: 60,
             fg: Color::WHITE,
             bg: Color::BLACK,
-            shadow: false,
+            shadow: true,
         };
         let result = AppState::new(
             Viewport::new(0, 0, vec![], 0),
             SongModifiers {
-                autoplay: true,
+                autoplay: false,
                 sv: true,
                 no_anim: false,
                 speed: 1.,
             },
             PlayState::new(),
-            Screens::Menu,
+            Screens::StartMenu,
             ui,
-            game_config
+            game_config?,
         );
 
         Ok(result)
@@ -156,16 +167,40 @@ impl AppState {
 
     pub fn json(&self) -> serde_json::Value {
         serde_json::json!({
-            "scroll_speed": self.game_config.scroll_speed,
-            "visual_offset":self.game_config.visual_offset,
-            "input_offset": self.game_config.input_offset,
-            "max_fps":      self.game_config.max_fps,
-            "lane_1_key":   self.game_config.lane_1_key,
-            "lane_2_key":   self.game_config.lane_2_key,
-            "lane_3_key":   self.game_config.lane_3_key,
-            "lane_4_key":   self.game_config.lane_4_key,
-            "songs_path":   self.game_config.songs_path,
+            "scroll_speed": self.config.scroll_speed,
+            "visual_offset":self.config.visual_offset,
+            "input_offset": self.config.input_offset,
+            "max_fps":      self.config.max_fps,
+            "left":   self.config.keybinds.left as i32,
+            "down":   self.config.keybinds.down as i32,
+            "up":   self.config.keybinds.up as i32,
+            "right":   self.config.keybinds.right as i32,
+            "confirm":   self.config.keybinds.confirm as i32,
+            "back":   self.config.keybinds.back as i32,
+            "songs_path":   self.config.songs_path,
         })
+    }
+}
+
+#[derive(Debug)]
+pub struct Keybinds {
+    pub left: KeyboardKey,
+    pub down: KeyboardKey,
+    pub up: KeyboardKey,
+    pub right: KeyboardKey,
+    pub confirm: KeyboardKey,
+    pub back: KeyboardKey,
+}
+impl Default for Keybinds {
+    fn default() -> Self {
+        Self {
+            left: KeyboardKey::KEY_D,
+            down: KeyboardKey::KEY_F,
+            up: KeyboardKey::KEY_J,
+            right: KeyboardKey::KEY_K,
+            confirm: KeyboardKey::KEY_Z,
+            back: KeyboardKey::KEY_X,
+        }
     }
 }
 
@@ -176,12 +211,10 @@ pub struct GameConfig {
     pub visual_offset: f32,
     #[serde(default)]
     pub input_offset: f32,
-    pub max_fps: u32,
+    #[serde(default)]
+    pub max_fps: i32,
     #[serde(skip)]
-    pub lane_1_key: i32,
-    pub lane_2_key: i32,
-    pub lane_3_key: i32,
-    pub lane_4_key: i32,
+    pub keybinds: Keybinds,
     pub songs_path: String,
 }
 
@@ -192,24 +225,27 @@ impl Default for GameConfig {
             visual_offset: 0.,
             input_offset: 0.,
             max_fps: 60,
-            lane_1_key: KeyboardKey::KEY_A as i32,
-            lane_2_key: KeyboardKey::KEY_S as i32,
-            lane_3_key: KeyboardKey::KEY_K as i32,
-            lane_4_key: KeyboardKey::KEY_L as i32,
+            keybinds: Keybinds::default(),
             songs_path: String::from("./charts/"),
         }
     }
 }
 
 impl GameConfig {
-    pub fn load() -> Self {
-        match std::fs::read_to_string("config.json") {
-            Ok(content) => serde_json::from_str(&content).expect("Failed to parse config"),
+    pub fn load() -> Result<GameConfig, Box<dyn std::error::Error>> {
+        let content = match std::fs::read_to_string("config.json") {
+            Ok(content) => content,
             Err(error) => {
-                println!("Issue loading configuration: {error}");
-                GameConfig::default()
+                println!("Issue reading configuration: {error}");
+                return Ok(GameConfig::default())
             }
-        }
+        };
+
+        let config = serde_json::from_str(&content).map_err(|e| {
+            format!("Issue parsing config JSON: {e}")
+        })?;
+
+        Ok(config)
     }
 }
 
@@ -241,10 +277,11 @@ impl Viewport {
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum Screens {
-    Menu,
+    StartMenu,
     Game,
     Results,
     Songs,
+    Settings,
 }
 
 pub struct PlayState {
@@ -253,7 +290,7 @@ pub struct PlayState {
     pub combo: i32,
     pub max_combo: i32,
     pub accuracy: f32,
-    pub song_data: Option<SongData>,
+    pub song_data: Option<ChartData>,
 }
 
 impl PlayState {
