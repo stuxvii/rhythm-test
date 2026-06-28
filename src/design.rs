@@ -1,4 +1,4 @@
-use crate::models::{Align, UIElements};
+use crate::models::{Align, UIElements, rrect};
 use raylib::{color::Color, prelude::*, text::RaylibFont};
 
 /**the rectangle returned is the dimensions of the text drawn.*/
@@ -9,7 +9,7 @@ pub fn draw_text(d: &mut RaylibDrawHandle, text: &str, vertical: Align, horizont
             let opposite_color = Color::new(255 - color.r, 255 - color.g, 255 - color.b, 255);
             for i in -1..3 {
                 for j in -1..3 {
-                    d.draw_text_ex(font, text, Vector2::new(pos.0 as f32 + j as f32, pos.1 as f32 + i as f32), font_size as f32, 1., opposite_color);
+                    d.draw_text_ex(font, text, Vector2::new((pos.0 + j) as f32, (pos.1 + i) as f32), font_size as f32, 1., opposite_color);
                 }
             }
         }

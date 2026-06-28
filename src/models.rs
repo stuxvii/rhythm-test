@@ -1,6 +1,6 @@
 use crate::judgment::Judgment;
 use raylib::prelude::*;
-use serde::{Deserialize, de::Error};
+use serde::Deserialize;
 
 pub struct UIElements {
     pub fonts: Vec<Font>,
@@ -11,6 +11,12 @@ pub struct UIElements {
     pub fg: Color,
     pub bg: Color,
     pub shadow: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BpmPoint {
+    pub start_time: f32, // in seconds
+    pub bpm: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -76,15 +82,19 @@ pub struct ChartMetadata {
     pub name: String,
     pub song: String,
     pub banner: String,
+    pub background: String,
     pub artist: String,
     pub creator: String,
     pub lanes: i32,
 }
 
+#[derive(Debug)]
 pub struct SongData {
     pub name: String,
     pub banner: String,
     pub banner_texture: Option<Texture2D>,
+    pub background: String,
+    pub background_texture: Option<Texture2D>,
     pub difficulties: Vec<ChartData>,
 }
 
@@ -94,6 +104,7 @@ pub struct ChartData {
     pub metadata: ChartMetadata,
     pub notes: Vec<Note>,
     pub computed_sv: Vec<SvPoint>,
+    pub bpm: Vec<BpmPoint>,
     pub hints: Vec<String>,
 }
 
@@ -105,6 +116,15 @@ impl ChartData {
         }
         let point = &self.computed_sv[iidx - 1];
         if sv { point.visual_pos + (time - point.start_time) * point.multiplier } else { time }
+    }
+    pub fn get_bpm(&self, time: f32) -> f32 {
+        
+        let iidx = self.bpm.partition_point(|s| s.start_time <= time);
+        if iidx == 0 {
+            return 120.; // safe value?
+        }
+        let point = &self.bpm[iidx - 1];
+        point.bpm
     }
 }
 
@@ -124,12 +144,7 @@ impl AppState {
             viewport,
             song_state,
             current_screen,
-            keys: vec![
-                config.keybinds.left,
-                config.keybinds.down,
-                config.keybinds.up,
-                config.keybinds.right,
-            ],
+            keys: vec![config.keybinds.left, config.keybinds.down, config.keybinds.up, config.keybinds.right],
             ui,
             config,
             song_modifiers,
@@ -153,7 +168,6 @@ impl AppState {
             SongModifiers {
                 autoplay: false,
                 sv: true,
-                no_anim: false,
                 speed: 1.,
             },
             PlayState::new(),
@@ -178,6 +192,8 @@ impl AppState {
             "confirm":   self.config.keybinds.confirm as i32,
             "back":   self.config.keybinds.back as i32,
             "songs_path":   self.config.songs_path,
+            "load_images":   self.config.load_images,
+            "starry_field":   self.config.starry_field,
         })
     }
 }
@@ -213,11 +229,17 @@ pub struct GameConfig {
     pub input_offset: f32,
     #[serde(default)]
     pub max_fps: i32,
+    #[serde(default = "default_true")]
+    pub load_images: bool,
+    #[serde(default = "default_true")]
+    pub starry_field: bool,
     #[serde(skip)]
     pub keybinds: Keybinds,
     pub songs_path: String,
 }
-
+const fn default_true() -> bool {
+    true
+}
 impl Default for GameConfig {
     fn default() -> Self {
         Self {
@@ -225,6 +247,8 @@ impl Default for GameConfig {
             visual_offset: 0.,
             input_offset: 0.,
             max_fps: 60,
+            load_images: false,
+            starry_field: false,
             keybinds: Keybinds::default(),
             songs_path: String::from("./charts/"),
         }
@@ -237,13 +261,11 @@ impl GameConfig {
             Ok(content) => content,
             Err(error) => {
                 println!("Issue reading configuration: {error}");
-                return Ok(GameConfig::default())
+                return Ok(GameConfig::default());
             }
         };
 
-        let config = serde_json::from_str(&content).map_err(|e| {
-            format!("Issue parsing config JSON: {e}")
-        })?;
+        let config = serde_json::from_str(&content).map_err(|e| format!("Issue parsing config JSON: {e}"))?;
 
         Ok(config)
     }
@@ -252,7 +274,6 @@ impl GameConfig {
 pub struct SongModifiers {
     pub autoplay: bool,
     pub sv: bool,
-    pub no_anim: bool,
     pub speed: f32,
 }
 pub enum Align {
@@ -304,4 +325,9 @@ impl PlayState {
             max_combo: 0,
         }
     }
+}
+
+#[inline]
+pub fn rrect<T1: AsF32, T2: AsF32, T3: AsF32, T4: AsF32>(x: T1, y: T2, width: T3, height: T4) -> Rectangle {
+    Rectangle::new(x.as_f32(), y.as_f32(), width.as_f32(), height.as_f32())
 }

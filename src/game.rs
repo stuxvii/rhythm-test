@@ -43,7 +43,7 @@ pub fn draw_ui(mut d: RaylibDrawHandle<'_>, app_state: &AppState) {
                 app_state.ui.bg,
             );
 
-            let offset = (0, 3);
+            let offset = (0, 0);
 
             let minutes_cur_time = (app_state.song_state.song_timer as i32 / 60) % 60;
             let seconds_cur_time = app_state.song_state.song_timer as i32 % 60;

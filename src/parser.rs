@@ -1,20 +1,16 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::SystemTime,
 };
 
-use raylib::{RaylibThread, prelude::RaylibDrawHandle, texture::Texture2D};
 use rayon::{
     iter::{IntoParallelIterator, ParallelBridge, ParallelIterator},
     slice::ParallelSliceMut,
-    vec,
 };
 use serde::Deserialize;
 
 use crate::{
-    judgment::Judgment,
-    models::{ChartData, ChartMetadata, Note, SongData, SvPoint},
+    judgment::Judgment, models::{BpmPoint, ChartData, ChartMetadata, Note, SongData, SvPoint},
 };
 
 pub trait Chart {
@@ -39,11 +35,16 @@ struct QuaFile {
     audio_file: String,
     #[serde(rename = "SliderVelocities")]
     slider_velocities: Vec<SliderVelocities>,
+    #[serde(rename = "TimingPoints")]
+    bpm_points: Vec<TimingPoints>,
     #[serde(rename = "HitObjects")]
     hit_objects: Vec<QuaHitObject>,
     #[serde(rename = "BannerFile")]
     #[serde(default)]
     banner_file: String,
+    #[serde(rename = "BackgroundFile")]
+    #[serde(default)]
+    background_file: String,
 }
 
 impl Chart for QuaFile {
@@ -77,12 +78,7 @@ impl Chart for QuaFile {
             })
             .collect();
 
-
-        let hints = vec![
-            format!("artist: {}", qua.artist),
-            format!("creator: {}", qua.creator),
-            format!("notes: {}", notes.len()),
-        ];
+        let hints = vec![format!("artist: {}", qua.artist), format!("creator: {}", qua.creator), format!("notes: {}", notes.len())];
 
         Ok(ChartData {
             name: qua.title,
@@ -90,13 +86,15 @@ impl Chart for QuaFile {
                 name: qua.difficulty_name,
                 song: qua.audio_file,
                 banner: qua.banner_file,
+                background: qua.background_file,
                 lanes,
                 artist: qua.artist,
                 creator: qua.creator,
             },
             computed_sv: precompute_sv(&mut qua.slider_velocities),
+            bpm: qua.bpm_points.iter().map(|g| BpmPoint {start_time: g.start_time / 1000., bpm: g.bpm}).collect(),
             notes,
-            hints
+            hints,
         })
     }
 }
@@ -109,6 +107,16 @@ pub struct SliderVelocities {
     #[serde(rename = "Multiplier")]
     #[serde(default)]
     multiplier: Option<f32>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TimingPoints {
+    #[serde(rename = "StartTime")]
+    #[serde(default)]
+    pub start_time: f32,
+    #[serde(rename = "Bpm")]
+    #[serde(default)]
+    pub bpm: f32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,6 +146,9 @@ pub fn parse_song_data(map_path: &PathBuf) -> Result<ChartData, Box<dyn std::err
                 song_data.metadata.song = parent_dir.join(&song_data.metadata.song).to_str().unwrap().to_string();
                 if !song_data.metadata.banner.is_empty() {
                     song_data.metadata.banner = parent_dir.join(&song_data.metadata.banner).to_str().unwrap().to_string();
+                }
+                if !song_data.metadata.background.is_empty() {
+                    song_data.metadata.background = parent_dir.join(&song_data.metadata.background).to_str().unwrap().to_string();
                 }
                 return Ok(song_data);
             }
@@ -181,13 +192,13 @@ pub fn precompute_sv(sv_list: &mut Vec<SliderVelocities>) -> Vec<SvPoint> {
  * if someone can help out and optimize the chart parsing in this (main bottleneck) then that would be hella appreciated
  */
 pub fn load_charts<T: AsRef<Path>>(path: T) -> Result<Vec<SongData>, Box<dyn std::error::Error>> {
-    let songs: Vec<SongData> = fs::read_dir(path)?
+    let mut songs: Vec<SongData> = fs::read_dir(path)?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_dir())
         .par_bridge()
         .filter_map(|e| {
             let files = fs::read_dir(e.path()).ok()?;
-            let difficulties: Vec<ChartData> = files
+            let mut difficulties: Vec<ChartData> = files
                 .flatten()
                 .map(|entry| entry.path())
                 .filter(|path| path.extension().map_or(false, |ext| ext == "qua"))
@@ -198,11 +209,35 @@ pub fn load_charts<T: AsRef<Path>>(path: T) -> Result<Vec<SongData>, Box<dyn std
                 return None;
             }
 
-            let name = difficulties.first()?.name.clone();
-            let banner = difficulties.first()?.metadata.banner.clone();
+            difficulties.sort_by_key(|s| s.notes.len());
 
-            Some(SongData { name, banner, banner_texture: None, difficulties })
+            let name = difficulties.first()?.name.clone();
+            
+            let mut banner = String::new();
+            let mut background = String::new();
+            for d in &difficulties {
+                if &d.metadata.banner != "" {
+                    banner = d.metadata.banner.clone();
+                    break
+                }
+            }
+            for d in &difficulties {
+                if &d.metadata.background != "" {
+                    background = d.metadata.background.clone();
+                    break
+                }
+            }
+
+            Some(SongData {
+                name,
+                banner,
+                banner_texture: None,
+                background,
+                background_texture: None,
+                difficulties,
+            })
         })
         .collect();
+    songs.sort_by_key(|s| s.name.clone());
     Ok(songs)
 }

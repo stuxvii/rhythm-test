@@ -10,6 +10,7 @@ use crate::models::*;
 
 pub struct ConfigItem {
     pub label: Box<dyn Fn(&AppState) -> String>,
+    pub description: String,
     pub adjust: Box<dyn Fn(&mut AppState, i32)>,
 }
 
@@ -33,43 +34,86 @@ fn draw_list_item(state: &AppState, d: &mut RaylibDrawHandle<'_>, visual_offset:
     position.1 += rect.height as i32 / 2;
     position.1 -= 5;
 
-    design::draw_text(d, &label, Align::Start, Align::Start, 15, state.ui.fg, position, &state.ui);
     rect.width /= 2.;
     rect.x += rect.width;
-
+    
     if let Some(texture) = banner {
         d.draw_texture_pro(texture, rrect(0, 0, texture.width, texture.height), rect, Vector2::new(0., 0.), 0., Color::WHITE);
     } else {
         d.draw_rectangle_gradient_ex(rect, Color::BLANK, Color::BLANK, Color::WHITE, Color::WHITE);
     }
+    design::draw_text(d, &label, Align::Start, Align::Start, 15, state.ui.fg, position, &state.ui);
     is_selected && d.is_key_pressed(state.config.keybinds.confirm)
 }
 
+pub fn center_crop_fit(content_size: Vector2, screen_size: Vector2) -> Rectangle {
+    let scale_x = screen_size.x / content_size.x;
+    let scale_y = screen_size.y / content_size.y;
+    let scale = scale_x.max(scale_y);
+    let width = content_size.x * scale;
+    let height = content_size.y * scale;
+    let x = (screen_size.x - width) / 2.0;
+    let y = (screen_size.y - height) / 2.0;
+
+    Rectangle { x, y, width, height }
+}
+
 fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
-    let (mut rhl, rt) = raylib::init().log_level(TraceLogLevel::LOG_NONE).resizable().height(600).width(800).msaa_4x().build();
+    let (mut rhl, rt) = raylib::init()
+        .log_level(TraceLogLevel::LOG_NONE)
+        .resizable()
+        .height(600)
+        .width(800)
+        .msaa_4x()
+        .build();
     let mut state: AppState = AppState::init()?;
 
     let mut setting_items: Vec<ConfigItem> = vec![
         ConfigItem {
             label: Box::new(|s| format!("visual offset: {:.2}", s.config.visual_offset)),
+            description: "Timings for notes displacement from the actual chart data.".into(),
             adjust: Box::new(|s, dir| s.config.visual_offset += 0.01 * dir as f32),
         },
         ConfigItem {
             label: Box::new(|s| format!("input offset: {:.2}", s.config.input_offset)),
+            description: "Timings for the judgements according to your input.".into(),
             adjust: Box::new(|s, dir| {
                 s.config.input_offset += 0.01 * dir as f32;
             }),
         },
         ConfigItem {
             label: Box::new(|s| format!("scroll speed: {:.2}", s.config.scroll_speed)),
+            description: "Distance between each note.".into(),
             adjust: Box::new(|s, dir| {
                 s.config.scroll_speed += 0.01 * dir as f32;
             }),
         },
         ConfigItem {
-            label: Box::new(|s| format!("fps limit*: {}", s.config.max_fps)),
+            label: Box::new(|s| format!("fps limit: {}", s.config.max_fps)),
+            description: "FPS that the game will try to run at. (0 for unlocked).".into(),
             adjust: Box::new(|s, dir| {
                 s.config.max_fps += dir;
+            }),
+        },
+        ConfigItem {
+            label: Box::new(|s| format!("load images (banners, backgrounds): {}", s.config.load_images)),
+            description: "Loading too many may overwork your RAM/Storage.".into(),
+            adjust: Box::new(|s, _d| {
+                s.config.load_images = !s.config.load_images;
+            }),
+        },
+        ConfigItem {
+            label: Box::new(|s| format!("starry field: {}", s.config.starry_field)),
+            description: "Reactive to BPM changes! Potentially annoying or distracting.".into(),
+            adjust: Box::new(|s, _d| {
+                s.config.starry_field = !s.config.starry_field;
+            }),
+        },
+        ConfigItem {
+            label: Box::new(|s| format!("text shadows: {}", s.ui.shadow)),
+            description: "Text is drawn multiple times, which may affect performance.".into(),
+            adjust: Box::new(|s, _d| {
+                s.ui.shadow = !s.ui.shadow;
             }),
         },
     ];
@@ -95,7 +139,10 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
     let mut chosen_song: Option<usize> = None;
     let mut chosen_difficulty: usize = 0;
     let mut setting_element: usize = 0;
-
+    let fs_starry_field = include_str!("star.fs");
+    let mut shader = rhl.load_shader_from_memory(&rt, None, Some(fs_starry_field));
+    let time_loc = shader.get_shader_location("uTime");
+    let mut t: f32 = 0.0;
     // audio_device.set_master_volume(0.05);
     while !rhl.window_should_close() {
         let mut d = rhl.begin_drawing(&rt);
@@ -109,6 +156,17 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
             current_song = None;
             chosen_song = None;
             chosen_difficulty = 0;
+            d.set_target_fps(state.config.max_fps as u32);
+        }
+        if let Some(a) = &state.song_state.song_data {
+            t += d.get_frame_time() * a.get_bpm(state.song_state.song_timer) / 100.;
+        } else {
+            t += d.get_frame_time();
+        }
+        if state.config.starry_field {
+            shader.set_shader_value(time_loc, t);
+            let mut sh_mode = d.begin_shader_mode(&mut shader);
+            sh_mode.draw_rectangle(0, 0, state.viewport.w, state.viewport.h, Color::WHITE);
         }
         match state.current_screen {
             Screens::Game => {
@@ -141,19 +199,27 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
                 if requested_chart_load {
                     let r = parser::load_charts(&state.config.songs_path);
                     if let Ok(parsed) = r {
-                        charts = parsed
-                            .into_iter()
-                            .map(|mut map| {
-                                if let Ok(mut image) = Image::load_image(&map.banner) {
-                                    image.resize(state.viewport.w / 2, state.ui.song_item_height);
-                                    if let Ok(txt) = d.load_texture_from_image(&rt, &image) {
-                                        map.banner_texture = Some(txt);
+                        if state.config.load_images {
+                            charts = parsed
+                                .into_iter()
+                                .map(|mut map| {
+                                    if let Ok(mut image) = Image::load_image(&map.banner) {
+                                        image.resize(state.viewport.w / 2, state.ui.song_item_height);
+                                        if let Ok(txt) = d.load_texture_from_image(&rt, &image) {
+                                            map.banner_texture = Some(txt);
+                                        }
                                     }
-                                    std::mem::drop(image);
-                                }
-                                map
-                            })
-                            .collect();
+                                    if let Ok(image) = Image::load_image(&map.background) {
+                                        if let Ok(txt) = d.load_texture_from_image(&rt, &image) {
+                                            map.background_texture = Some(txt);
+                                        }
+                                    }
+                                    map
+                                })
+                                .collect();
+                        } else {
+                            charts = parsed;
+                        }
                         charts.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
                     } else if let Err(err) = r {
                         return Err(format!("Couldn't load charts, check the folder path in config.json, error is: {err}").into());
@@ -161,13 +227,22 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
                     tried_loading_charts = true;
                 }
 
+                if let Some(data) = charts.get(chart_select_offset) {
+                    if let Some(txt) = &data.background_texture {
+                        let rect = rrect(0, 0, txt.width, txt.height);
+
+                        d.draw_texture_pro(
+                            txt,
+                            rect,
+                            center_crop_fit(Vector2::new(txt.width as f32, txt.height as f32), Vector2::new(state.viewport.w as f32, state.viewport.h as f32)),
+                            Vector2::new(0., 0.),
+                            0.,
+                            Color::GRAY,
+                        );
+                    }
+                }
                 // but then change it for the next frame
                 requested_chart_load = d.is_key_pressed(KeyboardKey::KEY_F5) || !tried_loading_charts;
-
-                // to let the following message to draw
-                if requested_chart_load {
-                    design::draw_text(&mut d, "Please wait...", Align::Middle, Align::Middle, 20, state.ui.fg, (0, 0), &state.ui);
-                }
 
                 if charts.is_empty() && tried_loading_charts && !requested_chart_load {
                     design::draw_text(&mut d, "No charts!", Align::Middle, Align::Middle, 20, state.ui.fg, (0, 0), &state.ui);
@@ -215,7 +290,7 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
                         for (v_off, (idx, song_data)) in data.difficulties.iter().enumerate().skip(chosen_difficulty).take(20).enumerate() {
                             if draw_list_item(&state, &mut d, v_off, &song_data.metadata.name, &data.banner_texture, idx == chosen_difficulty) {
                                 let mut music = audio_device.new_music(&song_data.metadata.song)?;
-                                music.looping = false;
+                                music.set_looping(false);
                                 music.set_pitch(state.song_modifiers.speed);
                                 current_song = Some(music);
                                 state.song_modifiers.sv = !d.is_key_down(KeyboardKey::KEY_LEFT_CONTROL);
@@ -246,12 +321,23 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 }
+
+                // to let the following message to draw
+                if requested_chart_load {
+                    design::draw_text(&mut d, "Please wait...", Align::Middle, Align::Middle, 20, state.ui.fg, (0, 0), &state.ui);
+                }
             }
             Screens::Settings => {
                 if let Some(item) = setting_items.get_mut(setting_element) {
                     let nav_down = d.is_key_pressed_repeat(state.config.keybinds.left) || d.is_key_pressed(state.config.keybinds.left);
                     let nav_up = d.is_key_pressed_repeat(state.config.keybinds.right) || d.is_key_pressed(state.config.keybinds.right);
-                    let mut delta = if nav_down {-1} else if nav_up {1} else {0};
+                    let mut delta = if nav_down {
+                        -1
+                    } else if nav_up {
+                        1
+                    } else {
+                        0
+                    };
                     if d.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
                         delta *= 10;
                     }
@@ -263,6 +349,7 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
                     let rect = design::draw_text(&mut d, &txt, Align::Start, Align::Start, 20, state.ui.fg, (10, 10 + index as i32 * 20), &state.ui);
                     if setting_element == index {
                         d.draw_rectangle_lines_ex(rect, 1., state.ui.fg);
+                        design::draw_text(&mut d, &item.description, Align::End, Align::End, 20, state.ui.fg, (-10, -10), &state.ui);
                     }
                 }
 
@@ -284,9 +371,6 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
                     (10, -10),
                     &state.ui,
                 );
-                design::draw_text(&mut d, "* - restart to apply", Align::End, Align::End, 20, state.ui.fg, (-10, -10), &state.ui);
-                design::draw_text(&mut d, "if the FPS setting is 0 or less", Align::End, Align::End, 20, state.ui.fg, (-10, -30), &state.ui);
-                design::draw_text(&mut d, "the framerate will be unlocked", Align::End, Align::End, 20, state.ui.fg, (-10, -50), &state.ui);
                 design::draw_text(&mut d, "10x - [left shift]", Align::Start, Align::End, 20, state.ui.fg, (-10, 10), &state.ui);
                 design::draw_text(&mut d, "decrease - [left]", Align::Start, Align::End, 20, state.ui.fg, (-10, 30), &state.ui);
                 design::draw_text(&mut d, "increase - [right]", Align::Start, Align::End, 20, state.ui.fg, (-10, 50), &state.ui);
