@@ -44,6 +44,21 @@ pub(crate) fn handle_menu_screen<'a>(d: &mut RaylibDrawHandle, audio_device: &'a
         design::draw_text(d, "offline quaver", Align::Start, Align::End, 50, state.ui.fg, (-10, 60), &state.ui);
         design::draw_text(d, "chart player", Align::Start, Align::End, 50, state.ui.fg, (-10, 110), &state.ui);
 
+        let nav_texts = vec!["Navigation keybinds","[left]/[down]/[up]/[right] - D/F/J/K","[confirm] - Z","[back] - X", "", "Global keybinds", "[esc] - main menu"];
+
+        for (i, txt) in nav_texts.iter().rev().enumerate() {
+            design::draw_text(
+                d,
+                txt,
+                Align::End,
+                Align::End,
+                20,
+                state.ui.fg,
+                (-10, (-20 * i as i32) - 5),
+                &state.ui,
+            );
+        }
+
         if d.is_key_pressed(KeyboardKey::KEY_Q) {
             return Ok(true);
         }

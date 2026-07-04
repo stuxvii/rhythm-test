@@ -228,7 +228,7 @@ pub struct GameConfig {
     #[serde(default)]
     pub input_offset: f32,
     #[serde(default)]
-    pub max_fps: i32,
+    pub max_fps: u32,
     #[serde(default = "default_true")]
     pub load_images: bool,
     #[serde(default = "default_true")]
@@ -293,6 +293,20 @@ pub struct Viewport {
 impl Viewport {
     pub fn new(w: i32, h: i32, l: Vec<(i32, KeyboardKey)>, r: i32) -> Viewport {
         Viewport { w, h, lanes: l, receptor_y: r }
+    }
+}
+
+pub struct ConfigItem {
+    pub label: Box<dyn Fn(&AppState) -> String>,
+    pub description: String,
+    pub adjust: Box<dyn Fn(&mut AppState, i32)>,
+}
+
+impl ConfigItem {
+    pub fn adjust(&mut self, direction: i32, state: &mut AppState) {
+        if direction != 0 {
+            (self.adjust)(state, direction);
+        }
     }
 }
 

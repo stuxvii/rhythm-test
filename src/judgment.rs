@@ -77,6 +77,8 @@ impl fmt::Display for Judgment {
 }
 
 pub enum Rating {
+    X,
+    SP,
     S,
     A,
     B,
@@ -88,6 +90,8 @@ pub enum Rating {
 impl Rating {
     pub fn display_info(&self) -> (&str, raylib::prelude::Color) {
         let string = match self {
+            Self::X => "X",
+            Self::SP => "S+",
             Self::S => "S!!!",
             Self::A => "A!!",
             Self::B => "B!",
@@ -96,6 +100,8 @@ impl Rating {
             Self::F => "F",
         };
         let color = match self {
+            Self::X => Color::WHITE,
+            Self::SP => Color::LIGHTGOLDENRODYELLOW,
             Self::S => Color::GOLD,
             Self::A => Color::GREEN,
             Self::B => Color::BLUE,
@@ -108,6 +114,8 @@ impl Rating {
     }
     pub fn threshold(&self) -> f32 {
         match self {
+            Self::X => 100.,
+            Self::SP => 99.,
             Self::S => 95.,
             Self::A => 90.,
             Self::B => 80.,
@@ -118,7 +126,11 @@ impl Rating {
     }
 
     pub fn from_time(percentage: f32) -> Self {
-        if percentage >= Self::S.threshold() {
+        if percentage >= Self::X.threshold() {
+            Self::X
+        } else if percentage >= Self::SP.threshold() {
+            Self::SP
+        } else if percentage >= Self::S.threshold() {
             Self::S
         } else if percentage >= Self::A.threshold() {
             Self::A

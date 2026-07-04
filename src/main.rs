@@ -6,66 +6,10 @@ mod menu;
 mod models;
 mod parser;
 mod results;
-use crate::models::*;
-
-pub struct ConfigItem {
-    pub label: Box<dyn Fn(&AppState) -> String>,
-    pub description: String,
-    pub adjust: Box<dyn Fn(&mut AppState, i32)>,
-}
-
-impl ConfigItem {
-    pub fn adjust(&mut self, direction: i32, state: &mut AppState) {
-        if direction != 0 {
-            (self.adjust)(state, direction);
-        }
-    }
-}
-
-fn draw_list_item(state: &AppState, d: &mut RaylibDrawHandle<'_>, visual_offset: usize, label: &str, banner: &Option<Texture2D>, is_selected: bool) -> bool {
-    let mut rect = rrect(0, 0, state.viewport.w / 2, 60);
-    let mut position = design::calculate_position(d, Align::Start, Align::End, (-rect.width as i32, (rect.height + 5.) as i32 * visual_offset as i32));
-    rect.x = position.0 as f32;
-    if is_selected {
-        rect.x -= 10.;
-    }
-    rect.y = position.1 as f32;
-    d.draw_rectangle_rec(rect, Color::DIMGRAY);
-    position.1 += rect.height as i32 / 2;
-    position.1 -= 5;
-
-    rect.width /= 2.;
-    rect.x += rect.width;
-    
-    if let Some(texture) = banner {
-        d.draw_texture_pro(texture, rrect(0, 0, texture.width, texture.height), rect, Vector2::new(0., 0.), 0., Color::WHITE);
-    } else {
-        d.draw_rectangle_gradient_ex(rect, Color::BLANK, Color::BLANK, Color::WHITE, Color::WHITE);
-    }
-    design::draw_text(d, &label, Align::Start, Align::Start, 15, state.ui.fg, position, &state.ui);
-    is_selected && d.is_key_pressed(state.config.keybinds.confirm)
-}
-
-pub fn center_crop_fit(content_size: Vector2, screen_size: Vector2) -> Rectangle {
-    let scale_x = screen_size.x / content_size.x;
-    let scale_y = screen_size.y / content_size.y;
-    let scale = scale_x.max(scale_y);
-    let width = content_size.x * scale;
-    let height = content_size.y * scale;
-    let x = (screen_size.x - width) / 2.0;
-    let y = (screen_size.y - height) / 2.0;
-
-    Rectangle { x, y, width, height }
-}
+use crate::{design::{center_crop_fit, draw_list_item}, models::*};
 
 fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
-    let (mut rhl, rt) = raylib::init()
-        .log_level(TraceLogLevel::LOG_NONE)
-        .resizable()
-        .height(600)
-        .width(800)
-        .msaa_4x()
-        .build();
+    let (mut rhl, rt) = raylib::init().log_level(TraceLogLevel::LOG_NONE).resizable().height(600).width(800).msaa_4x().build();
     let mut state: AppState = AppState::init()?;
 
     let mut setting_items: Vec<ConfigItem> = vec![
@@ -92,7 +36,7 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
             label: Box::new(|s| format!("fps limit: {}", s.config.max_fps)),
             description: "FPS that the game will try to run at. (0 for unlocked).".into(),
             adjust: Box::new(|s, dir| {
-                s.config.max_fps += dir;
+                s.config.max_fps += dir as u32;
             }),
         },
         ConfigItem {
@@ -120,7 +64,7 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
     let audio_device: RaylibAudio = audio::RaylibAudio::init_audio_device()?;
 
     rhl.set_window_min_size(800, 600);
-    rhl.set_target_fps(state.config.max_fps as u32);
+    rhl.set_target_fps(state.config.max_fps);
     rhl.set_exit_key(None);
 
     for n in 0..5 {
@@ -138,7 +82,7 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
     let mut chart_select_offset: usize = 0;
     let mut chosen_song: Option<usize> = None;
     let mut chosen_difficulty: usize = 0;
-    let mut setting_element: usize = 0;
+    let mut selected_element: usize = 0;
     let fs_starry_field = include_str!("star.fs");
     let mut shader = rhl.load_shader_from_memory(&rt, None, Some(fs_starry_field));
     let time_loc = shader.get_shader_location("uTime");
@@ -158,12 +102,12 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
             chosen_difficulty = 0;
             d.set_target_fps(state.config.max_fps as u32);
         }
-        if let Some(a) = &state.song_state.song_data {
-            t += d.get_frame_time() * a.get_bpm(state.song_state.song_timer) / 100.;
-        } else {
-            t += d.get_frame_time();
-        }
         if state.config.starry_field {
+            if let Some(a) = &state.song_state.song_data {
+                t += d.get_frame_time() * a.get_bpm(state.song_state.song_timer) / 100.;
+            } else {
+                t += d.get_frame_time();
+            }
             shader.set_shader_value(time_loc, t);
             let mut sh_mode = d.begin_shader_mode(&mut shader);
             sh_mode.draw_rectangle(0, 0, state.viewport.w, state.viewport.h, Color::WHITE);
@@ -328,7 +272,7 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             Screens::Settings => {
-                if let Some(item) = setting_items.get_mut(setting_element) {
+                if let Some(item) = setting_items.get_mut(selected_element) {
                     let nav_down = d.is_key_pressed_repeat(state.config.keybinds.left) || d.is_key_pressed(state.config.keybinds.left);
                     let nav_up = d.is_key_pressed_repeat(state.config.keybinds.right) || d.is_key_pressed(state.config.keybinds.right);
                     let mut delta = if nav_down {
@@ -347,30 +291,19 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
                 for (index, item) in setting_items.iter_mut().enumerate() {
                     let txt = (item.label)(&state);
                     let rect = design::draw_text(&mut d, &txt, Align::Start, Align::Start, 20, state.ui.fg, (10, 10 + index as i32 * 20), &state.ui);
-                    if setting_element == index {
+                    if selected_element == index {
                         d.draw_rectangle_lines_ex(rect, 1., state.ui.fg);
                         design::draw_text(&mut d, &item.description, Align::End, Align::End, 20, state.ui.fg, (-10, -10), &state.ui);
                     }
                 }
 
-                if setting_element + 1 < setting_items.len() && d.is_key_pressed(state.config.keybinds.down) {
-                    setting_element += 1;
+                if selected_element + 1 < setting_items.len() && d.is_key_pressed(state.config.keybinds.down) {
+                    selected_element += 1;
                 }
 
                 if d.is_key_pressed(state.config.keybinds.up) {
-                    setting_element = setting_element.saturating_sub(1);
+                    selected_element = selected_element.saturating_sub(1);
                 }
-
-                design::draw_text(
-                    &mut d,
-                    "Navigation keybinds\n[left]/[down]/[up]/[right] - D/F/J/K\n[confirm] - Z\n[back] - X\n\nGlobal keybinds\n[esc] - main menu",
-                    Align::End,
-                    Align::Start,
-                    20,
-                    state.ui.fg,
-                    (10, -10),
-                    &state.ui,
-                );
                 design::draw_text(&mut d, "10x - [left shift]", Align::Start, Align::End, 20, state.ui.fg, (-10, 10), &state.ui);
                 design::draw_text(&mut d, "decrease - [left]", Align::Start, Align::End, 20, state.ui.fg, (-10, 30), &state.ui);
                 design::draw_text(&mut d, "increase - [right]", Align::Start, Align::End, 20, state.ui.fg, (-10, 50), &state.ui);

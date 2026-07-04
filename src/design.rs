@@ -1,4 +1,4 @@
-use crate::models::{Align, UIElements, rrect};
+use crate::models::{Align, AppState, UIElements, rrect};
 use raylib::{color::Color, prelude::*, text::RaylibFont};
 
 /**the rectangle returned is the dimensions of the text drawn.*/
@@ -7,8 +7,8 @@ pub fn draw_text(d: &mut RaylibDrawHandle, text: &str, vertical: Align, horizont
         let pos: (i32, i32, i32, i32) = calculate_dimensions_text(d, vertical, horizontal, offset, text, font_size, font);
         if ui_state.shadow {
             let opposite_color = Color::new(255 - color.r, 255 - color.g, 255 - color.b, 255);
-            for i in -1..3 {
-                for j in -1..3 {
+            for i in -1..2 {
+                for j in -1..2 {
                     d.draw_text_ex(font, text, Vector2::new((pos.0 + j) as f32, (pos.1 + i) as f32), font_size as f32, 1., opposite_color);
                 }
             }
@@ -69,4 +69,40 @@ pub fn calculate_position(d: &mut RaylibDrawHandle, vertical: Align, horizontal:
     x += offset.0;
     y += offset.1;
     (x, y)
+}
+
+pub fn draw_list_item(state: &AppState, d: &mut RaylibDrawHandle<'_>, visual_offset: usize, label: &str, banner: &Option<Texture2D>, is_selected: bool) -> bool {
+    let mut rect = rrect(0, 0, state.viewport.w / 2, 60);
+    let mut position = calculate_position(d, Align::Start, Align::End, (-rect.width as i32, (rect.height + 5.) as i32 * visual_offset as i32));
+    rect.x = position.0 as f32;
+    if is_selected {
+        rect.x -= 10.;
+    }
+    rect.y = position.1 as f32;
+    d.draw_rectangle_rec(rect, Color::DIMGRAY);
+    position.1 += rect.height as i32 / 2;
+    position.1 -= 5;
+
+    rect.width /= 2.;
+    rect.x += rect.width;
+
+    if let Some(texture) = banner {
+        d.draw_texture_pro(texture, rrect(0, 0, texture.width, texture.height), rect, Vector2::new(0., 0.), 0., Color::WHITE);
+    } else {
+        d.draw_rectangle_gradient_ex(rect, Color::BLANK, Color::BLANK, Color::WHITE, Color::WHITE);
+    }
+    draw_text(d, &label, Align::Start, Align::Start, 15, state.ui.fg, position, &state.ui);
+    is_selected && d.is_key_pressed(state.config.keybinds.confirm)
+}
+
+pub fn center_crop_fit(content_size: Vector2, screen_size: Vector2) -> Rectangle {
+    let scale_x = screen_size.x / content_size.x;
+    let scale_y = screen_size.y / content_size.y;
+    let scale = scale_x.max(scale_y);
+    let width = content_size.x * scale;
+    let height = content_size.y * scale;
+    let x = (screen_size.x - width) / 2.0;
+    let y = (screen_size.y - height) / 2.0;
+
+    Rectangle { x, y, width, height }
 }
