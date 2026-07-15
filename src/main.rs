@@ -1,93 +1,44 @@
-use raylib::prelude::*;
-mod design;
-mod game;
-mod judgment;
-mod menu;
-mod models;
-mod parser;
-mod results;
-use crate::{design::{center_crop_fit, draw_list_item}, models::*};
+pub use models::*;
+pub use raylib::prelude::*;
+pub mod design;
+pub mod game;
+pub mod judgment;
+pub mod menu;
+pub mod models;
+pub mod parser;
+pub mod results;
+pub mod songs;
 
-fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
-    let (mut rhl, rt) = raylib::init().log_level(TraceLogLevel::LOG_NONE).resizable().height(600).width(800).msaa_4x().build();
+fn main_loop(rhl: &mut RaylibHandle, rt:&RaylibThread) -> Result<(), Box<dyn std::error::Error>> {
     let mut state: AppState = AppState::init()?;
 
-    let mut setting_items: Vec<ConfigItem> = vec![
-        ConfigItem {
-            label: Box::new(|s| format!("visual offset: {:.2}", s.config.visual_offset)),
-            description: "Timings for notes displacement from the actual chart data.".into(),
-            adjust: Box::new(|s, dir| s.config.visual_offset += 0.01 * dir as f32),
-        },
-        ConfigItem {
-            label: Box::new(|s| format!("input offset: {:.2}", s.config.input_offset)),
-            description: "Timings for the judgements according to your input.".into(),
-            adjust: Box::new(|s, dir| {
-                s.config.input_offset += 0.01 * dir as f32;
-            }),
-        },
-        ConfigItem {
-            label: Box::new(|s| format!("scroll speed: {:.2}", s.config.scroll_speed)),
-            description: "Distance between each note.".into(),
-            adjust: Box::new(|s, dir| {
-                s.config.scroll_speed += 0.01 * dir as f32;
-            }),
-        },
-        ConfigItem {
-            label: Box::new(|s| format!("fps limit: {}", s.config.max_fps)),
-            description: "FPS that the game will try to run at. (0 for unlocked).".into(),
-            adjust: Box::new(|s, dir| {
-                s.config.max_fps += dir as u32;
-            }),
-        },
-        ConfigItem {
-            label: Box::new(|s| format!("load images (banners, backgrounds): {}", s.config.load_images)),
-            description: "Loading too many may overwork your RAM/Storage.".into(),
-            adjust: Box::new(|s, _d| {
-                s.config.load_images = !s.config.load_images;
-            }),
-        },
-        ConfigItem {
-            label: Box::new(|s| format!("starry field: {}", s.config.starry_field)),
-            description: "Reactive to BPM changes! Potentially annoying or distracting.".into(),
-            adjust: Box::new(|s, _d| {
-                s.config.starry_field = !s.config.starry_field;
-            }),
-        },
-        ConfigItem {
-            label: Box::new(|s| format!("text shadows: {}", s.ui.shadow)),
-            description: "Text is drawn multiple times, which may affect performance.".into(),
-            adjust: Box::new(|s, _d| {
-                s.ui.shadow = !s.ui.shadow;
-            }),
-        },
-    ];
-    let audio_device: RaylibAudio = audio::RaylibAudio::init_audio_device()?;
+    state.interaction.tried_loading_charts = !state.config.auto_fetch;
 
     rhl.set_window_min_size(800, 600);
     rhl.set_target_fps(state.config.max_fps);
     rhl.set_exit_key(None);
 
-    for n in 0..5 {
-        // now i know... this is ugly... but text handling is not joyous in this platform. :(
-        let f = rhl.load_font_from_memory(&rt, ".ttf", include_bytes!("../lt.ttf"), 10 + (n * state.ui.text_scale), None)?;
-        f.texture().set_texture_filter(&rt, TextureFilter::TEXTURE_FILTER_TRILINEAR);
-        state.ui.fonts.push(f);
+    if let Ok(data) = std::fs::read("font.ttf") {
+        for n in 0..5 {
+            // now i know... this is ugly... but text handling is not joyous in this platform. :(
+            let f = rhl.load_font_from_memory(&rt, ".ttf", &data, 10 + (n * state.ui.text_scale), None)?;
+            f.texture().set_texture_filter(&rt, TextureFilter::TEXTURE_FILTER_TRILINEAR);
+            state.ui.fonts.push(f);
+        }
     }
+
+    let audio_device: RaylibAudio = audio::RaylibAudio::init_audio_device()?;
 
     let mut current_song: Option<Music<'_>> = None;
     let current_tap: Option<Sound<'_>> = Some(audio_device.new_sound("./hit.wav")?);
-    let mut charts: Vec<SongData> = vec![];
-    let mut tried_loading_charts = false;
-    let mut requested_chart_load = false;
-    let mut chart_select_offset: usize = 0;
-    let mut chosen_song: Option<usize> = None;
-    let mut chosen_difficulty: usize = 0;
-    let mut selected_element: usize = 0;
+    let option_sfx: Sound<'_> = audio_device.new_sound("./option.wav")?;
+    let cancel_sfx: Sound<'_> = audio_device.new_sound("./cancel.wav")?;
+
     let fs_starry_field = include_str!("star.fs");
     let mut shader = rhl.load_shader_from_memory(&rt, None, Some(fs_starry_field));
     let time_loc = shader.get_shader_location("uTime");
     let mut t: f32 = 0.0;
-    // audio_device.set_master_volume(0.05);
+
     while !rhl.window_should_close() {
         let mut d = rhl.begin_drawing(&rt);
         state.viewport.h = d.get_screen_height();
@@ -95,12 +46,14 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
         d.clear_background(Color::BLANK);
         state.viewport.receptor_y = state.viewport.h - state.ui.note_height;
         if d.is_key_pressed(KeyboardKey::KEY_ESCAPE) {
+            cancel_sfx.play();
             state.current_screen = Screens::StartMenu;
             state.song_state = PlayState::new();
             current_song = None;
-            chosen_song = None;
-            chosen_difficulty = 0;
-            d.set_target_fps(state.config.max_fps as u32);
+            state.interaction.chosen_song = None;
+            state.interaction.select_offset = 0;
+            state.interaction.chosen_difficulty = 0;
+            d.set_target_fps(state.config.max_fps);
         }
         if state.config.starry_field {
             if let Some(a) = &state.song_state.song_data {
@@ -124,7 +77,7 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
                         })
                         .collect();
 
-                    game::game_loop(d, &mut state, &current_tap, &current_song);
+                    game::game_loop(d, &mut state, &current_tap, &current_song)?;
                 }
             }
             Screens::StartMenu => {
@@ -138,176 +91,8 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             Screens::Results => results::draw_results(d, &mut state, &current_song),
-            Screens::Songs => {
-                // we put this before any state assignment
-                if requested_chart_load {
-                    let r = parser::load_charts(&state.config.songs_path);
-                    if let Ok(parsed) = r {
-                        if state.config.load_images {
-                            charts = parsed
-                                .into_iter()
-                                .map(|mut map| {
-                                    if let Ok(mut image) = Image::load_image(&map.banner) {
-                                        image.resize(state.viewport.w / 2, state.ui.song_item_height);
-                                        if let Ok(txt) = d.load_texture_from_image(&rt, &image) {
-                                            map.banner_texture = Some(txt);
-                                        }
-                                    }
-                                    if let Ok(image) = Image::load_image(&map.background) {
-                                        if let Ok(txt) = d.load_texture_from_image(&rt, &image) {
-                                            map.background_texture = Some(txt);
-                                        }
-                                    }
-                                    map
-                                })
-                                .collect();
-                        } else {
-                            charts = parsed;
-                        }
-                        charts.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-                    } else if let Err(err) = r {
-                        return Err(format!("Couldn't load charts, check the folder path in config.json, error is: {err}").into());
-                    }
-                    tried_loading_charts = true;
-                }
-
-                if let Some(data) = charts.get(chart_select_offset) {
-                    if let Some(txt) = &data.background_texture {
-                        let rect = rrect(0, 0, txt.width, txt.height);
-
-                        d.draw_texture_pro(
-                            txt,
-                            rect,
-                            center_crop_fit(Vector2::new(txt.width as f32, txt.height as f32), Vector2::new(state.viewport.w as f32, state.viewport.h as f32)),
-                            Vector2::new(0., 0.),
-                            0.,
-                            Color::GRAY,
-                        );
-                    }
-                }
-                // but then change it for the next frame
-                requested_chart_load = d.is_key_pressed(KeyboardKey::KEY_F5) || !tried_loading_charts;
-
-                if charts.is_empty() && tried_loading_charts && !requested_chart_load {
-                    design::draw_text(&mut d, "No charts!", Align::Middle, Align::Middle, 20, state.ui.fg, (0, 0), &state.ui);
-                    design::draw_text(&mut d, "F5 to refresh", Align::Middle, Align::Middle, 15, state.ui.fg, (0, 20), &state.ui);
-                    design::draw_text(&mut d, "ESC to go back", Align::Middle, Align::Middle, 15, state.ui.fg, (0, -20), &state.ui);
-                } else {
-                    if d.is_key_pressed(state.config.keybinds.back) {
-                        chosen_song = None;
-                        chosen_difficulty = 0;
-                    }
-                    if d.is_key_pressed_repeat(state.config.keybinds.left) || d.is_key_pressed(state.config.keybinds.left) {
-                        if state.song_modifiers.speed >= 0.05 {
-                            state.song_modifiers.speed -= 0.05;
-                        }
-                    }
-                    if d.is_key_pressed_repeat(state.config.keybinds.right) || d.is_key_pressed(state.config.keybinds.right) {
-                        state.song_modifiers.speed += 0.05;
-                    }
-                    if let Some(data) = charts.get(chart_select_offset) {
-                        design::draw_text(&mut d, &data.name, Align::Start, Align::Start, 15, state.ui.fg, (10, 10), &state.ui);
-                        if let Some(data) = data.difficulties.get(chosen_difficulty) {
-                            for (idx, text) in data.hints.iter().enumerate() {
-                                design::draw_text(&mut d, &text, Align::Start, Align::Start, 15, state.ui.fg, (10, 25 + (idx as i32 * 15)), &state.ui);
-                            }
-                            if let Some(first_note) = data.notes.first() {
-                                if let Some(last_note) = data.notes.last() {
-                                    let txt = format!("length: {}s", last_note.time - first_note.time);
-                                    design::draw_text(&mut d, &txt, Align::Start, Align::Start, 15, state.ui.fg, (10, 70), &state.ui);
-                                }
-                            }
-                        }
-
-                        let txt = format!("[left] speed: {:.2}x [right]", state.song_modifiers.speed);
-                        design::draw_text(&mut d, &txt, Align::End, Align::Start, 20, state.ui.fg, (10, -10), &state.ui);
-                    }
-                    let nav_down = d.is_key_pressed_repeat(state.config.keybinds.down) || d.is_key_pressed(state.config.keybinds.down);
-                    let nav_up = d.is_key_pressed_repeat(state.config.keybinds.up) || d.is_key_pressed(state.config.keybinds.up);
-
-                    if let Some(data) = chosen_song.and_then(|idx| charts.get(idx)) {
-                        let hints = [("[confirm] - go.", -70), ("hold [ctrl] - no sv", -50), ("hold [shift] - autoplay", -30)];
-                        for (text, y_off) in hints {
-                            design::draw_text(&mut d, text, Align::End, Align::Start, 20, state.ui.fg, (10, y_off), &state.ui);
-                        }
-
-                        for (v_off, (idx, song_data)) in data.difficulties.iter().enumerate().skip(chosen_difficulty).take(20).enumerate() {
-                            if draw_list_item(&state, &mut d, v_off, &song_data.metadata.name, &data.banner_texture, idx == chosen_difficulty) {
-                                let mut music = audio_device.new_music(&song_data.metadata.song)?;
-                                music.set_looping(false);
-                                music.set_pitch(state.song_modifiers.speed);
-                                current_song = Some(music);
-                                state.song_modifiers.sv = !d.is_key_down(KeyboardKey::KEY_LEFT_CONTROL);
-                                state.song_modifiers.autoplay = d.is_key_down(KeyboardKey::KEY_LEFT_SHIFT);
-                                state.song_state.song_data = Some(song_data.clone());
-                                state.current_screen = Screens::Game;
-                            }
-                        }
-
-                        if nav_down && chosen_difficulty < data.difficulties.len() - 1 {
-                            chosen_difficulty += 1;
-                        }
-                        if nav_up {
-                            chosen_difficulty = chosen_difficulty.saturating_sub(1);
-                        }
-                    } else {
-                        for (v_off, (idx, chart)) in charts.iter().enumerate().skip(chart_select_offset).take(20).enumerate() {
-                            if draw_list_item(&state, &mut d, v_off, &chart.name, &chart.banner_texture, idx == chart_select_offset) {
-                                chosen_song = Some(idx);
-                            }
-                        }
-
-                        if nav_down && chart_select_offset < charts.len() - 1 {
-                            chart_select_offset += 1;
-                        }
-                        if nav_up {
-                            chart_select_offset = chart_select_offset.saturating_sub(1);
-                        }
-                    }
-                }
-
-                // to let the following message to draw
-                if requested_chart_load {
-                    design::draw_text(&mut d, "Please wait...", Align::Middle, Align::Middle, 20, state.ui.fg, (0, 0), &state.ui);
-                }
-            }
-            Screens::Settings => {
-                if let Some(item) = setting_items.get_mut(selected_element) {
-                    let nav_down = d.is_key_pressed_repeat(state.config.keybinds.left) || d.is_key_pressed(state.config.keybinds.left);
-                    let nav_up = d.is_key_pressed_repeat(state.config.keybinds.right) || d.is_key_pressed(state.config.keybinds.right);
-                    let mut delta = if nav_down {
-                        -1
-                    } else if nav_up {
-                        1
-                    } else {
-                        0
-                    };
-                    if d.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
-                        delta *= 10;
-                    }
-                    item.adjust(delta, &mut state);
-                }
-
-                for (index, item) in setting_items.iter_mut().enumerate() {
-                    let txt = (item.label)(&state);
-                    let rect = design::draw_text(&mut d, &txt, Align::Start, Align::Start, 20, state.ui.fg, (10, 10 + index as i32 * 20), &state.ui);
-                    if selected_element == index {
-                        d.draw_rectangle_lines_ex(rect, 1., state.ui.fg);
-                        design::draw_text(&mut d, &item.description, Align::End, Align::End, 20, state.ui.fg, (-10, -10), &state.ui);
-                    }
-                }
-
-                if selected_element + 1 < setting_items.len() && d.is_key_pressed(state.config.keybinds.down) {
-                    selected_element += 1;
-                }
-
-                if d.is_key_pressed(state.config.keybinds.up) {
-                    selected_element = selected_element.saturating_sub(1);
-                }
-                design::draw_text(&mut d, "10x - [left shift]", Align::Start, Align::End, 20, state.ui.fg, (-10, 10), &state.ui);
-                design::draw_text(&mut d, "decrease - [left]", Align::Start, Align::End, 20, state.ui.fg, (-10, 30), &state.ui);
-                design::draw_text(&mut d, "increase - [right]", Align::Start, Align::End, 20, state.ui.fg, (-10, 50), &state.ui);
-            }
+            Screens::Songs => songs::draw_songs(d, &mut state, &mut current_song, &audio_device, &rt)?,
+            Screens::Settings => menu::draw_settings(d, &mut state, &option_sfx),
         }
     }
 
@@ -316,7 +101,27 @@ fn main_loop() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn main() {
-    if let Err(e) = main_loop() {
-        msgbox::create("A bubonically fatal error just ocurred.", e.to_string().as_str(), msgbox::IconType::Error).unwrap()
+    let (mut rhl, rt) = raylib::init()
+        .log_level(TraceLogLevel::LOG_ALL)
+        .resizable()
+        .height(600)
+        .width(800)
+        .msaa_4x()
+        .build();
+
+    let mut error: Option<String> = None;
+
+    if let Err(e) = main_loop(&mut rhl, &rt) {
+        error = Some(e.to_string());
     };
+
+    if let Some(e) = error {
+        while !rhl.window_should_close() {
+            let mut d = rhl.begin_drawing(&rt);
+            d.clear_background(Color::BLACK);
+            d.draw_text("An unrecoverable error has ocurred.", 10, 10, 20, Color::WHITE);
+            d.draw_text("If possible, reopen the game in a terminal and\ntrigger this error again, as to report and fix it.", 10, 30, 20, Color::WHITE);
+            d.draw_text(e.as_str(), 10, 90, 20, Color::WHITE);
+        }
+    }
 }

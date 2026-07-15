@@ -1,5 +1,5 @@
 [package]
-name = "ab93qcp" # acidbox93's quaver chart player
+name = "ab93rgcp" # acidbox93's rhythm game chart player
 version = "1.0.0"
 edition = "2024"
 
@@ -13,5 +13,5 @@ serde_yaml_ng = "0.10.0"
 
 [profile.release]
 panic = "abort"
-opt-level = 3
+opt-level = "z"
 strip = "symbols"

@@ -77,6 +77,7 @@ impl Note {
     }
 }
 
+#[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct ChartMetadata {
     pub name: String,
@@ -118,7 +119,6 @@ impl ChartData {
         if sv { point.visual_pos + (time - point.start_time) * point.multiplier } else { time }
     }
     pub fn get_bpm(&self, time: f32) -> f32 {
-        
         let iidx = self.bpm.partition_point(|s| s.start_time <= time);
         if iidx == 0 {
             return 120.; // safe value?
@@ -128,12 +128,34 @@ impl ChartData {
     }
 }
 
+pub struct Interaction {
+    pub requested_chart_load: bool,
+    pub tried_loading_charts: bool,
+    pub select_offset: usize,
+    pub chosen_song: Option<usize>,
+    pub chosen_difficulty: usize,
+}
+
+impl Default for Interaction {
+    fn default() -> Self {
+        Self {
+            requested_chart_load: false,
+            tried_loading_charts: true,
+            select_offset: 0,
+            chosen_song: None,
+            chosen_difficulty: 0,
+        }
+    }
+}
+
 pub struct AppState {
     pub config: GameConfig,
     pub viewport: Viewport,
     pub song_state: PlayState,
     pub song_modifiers: SongModifiers,
     pub current_screen: Screens,
+    pub interaction: Interaction,
+    pub charts: Vec<SongData>,
     pub keys: Vec<KeyboardKey>,
     pub ui: UIElements,
 }
@@ -142,8 +164,10 @@ impl AppState {
     pub fn new(viewport: Viewport, song_modifiers: SongModifiers, song_state: PlayState, current_screen: Screens, ui: UIElements, config: GameConfig) -> Self {
         AppState {
             viewport,
+            charts: vec![],
             song_state,
             current_screen,
+            interaction: Interaction::default(),
             keys: vec![config.keybinds.left, config.keybinds.down, config.keybinds.up, config.keybinds.right],
             ui,
             config,
@@ -165,11 +189,7 @@ impl AppState {
         };
         let result = AppState::new(
             Viewport::new(0, 0, vec![], 0),
-            SongModifiers {
-                autoplay: false,
-                sv: true,
-                speed: 1.,
-            },
+            SongModifiers { autoplay: false, sv: true, speed: 1. },
             PlayState::new(),
             Screens::StartMenu,
             ui,
@@ -194,6 +214,7 @@ impl AppState {
             "songs_path":   self.config.songs_path,
             "load_images":   self.config.load_images,
             "starry_field":   self.config.starry_field,
+            "auto_fetch":   self.config.auto_fetch,
         })
     }
 }
@@ -233,6 +254,8 @@ pub struct GameConfig {
     pub load_images: bool,
     #[serde(default = "default_true")]
     pub starry_field: bool,
+    #[serde(default = "default_true")]
+    pub auto_fetch: bool,
     #[serde(skip)]
     pub keybinds: Keybinds,
     pub songs_path: String,
@@ -248,6 +271,7 @@ impl Default for GameConfig {
             input_offset: 0.,
             max_fps: 60,
             load_images: false,
+            auto_fetch: true,
             starry_field: false,
             keybinds: Keybinds::default(),
             songs_path: String::from("./charts/"),
@@ -303,10 +327,69 @@ pub struct ConfigItem {
 }
 
 impl ConfigItem {
-    pub fn adjust(&mut self, direction: i32, state: &mut AppState) {
+    pub fn adjust(&self, direction: i32, state: &mut AppState) {
         if direction != 0 {
             (self.adjust)(state, direction);
         }
+    }
+
+    pub fn items() -> Vec<Self> {
+        vec![
+            ConfigItem {
+                label: Box::new(|s| format!("visual offset: {:.2}", s.config.visual_offset)),
+                description: "Timings for notes displacement from the actual chart data.".into(),
+                adjust: Box::new(|s, dir| s.config.visual_offset += 0.01 * dir as f32),
+            },
+            ConfigItem {
+                label: Box::new(|s| format!("input offset: {:.2}", s.config.input_offset)),
+                description: "Timings for the judgements according to your input.".into(),
+                adjust: Box::new(|s, dir| {
+                    s.config.input_offset += 0.01 * dir as f32;
+                }),
+            },
+            ConfigItem {
+                label: Box::new(|s| format!("scroll speed: {:.2}", s.config.scroll_speed)),
+                description: "Distance between each note.".into(),
+                adjust: Box::new(|s, dir| {
+                    s.config.scroll_speed += 0.01 * dir as f32;
+                }),
+            },
+            ConfigItem {
+                label: Box::new(|s| format!("fps limit: {}", s.config.max_fps)),
+                description: "FPS that the game will try to run at. (0 for unlocked).".into(),
+                adjust: Box::new(|s, dir| {
+                    s.config.max_fps += dir as u32;
+                }),
+            },
+            ConfigItem {
+                label: Box::new(|s| format!("load images (banners, backgrounds): {}", s.config.load_images)),
+                description: "Loading too many may overwork your RAM/Storage.".into(),
+                adjust: Box::new(|s, _d| {
+                    s.config.load_images = !s.config.load_images;
+                }),
+            },
+            ConfigItem {
+                label: Box::new(|s| format!("starry field: {}", s.config.starry_field)),
+                description: "Reactive to BPM changes! Potentially annoying or distracting.".into(),
+                adjust: Box::new(|s, _d| {
+                    s.config.starry_field = !s.config.starry_field;
+                }),
+            },
+            ConfigItem {
+                label: Box::new(|s| format!("text shadows: {}", s.ui.shadow)),
+                description: "Text is drawn multiple times, which may affect performance.".into(),
+                adjust: Box::new(|s, _d| {
+                    s.ui.shadow = !s.ui.shadow;
+                }),
+            },
+            ConfigItem {
+                label: Box::new(|s| format!("auto-fetch songs: {}", s.config.auto_fetch)),
+                description: "When the songs list is shown for the first time in the session, load them.".into(),
+                adjust: Box::new(|s, _d| {
+                    s.config.auto_fetch = !s.config.auto_fetch;
+                }),
+            },
+        ]
     }
 }
 

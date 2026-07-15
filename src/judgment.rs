@@ -59,6 +59,30 @@ impl Judgment {
             Self::None
         }
     }
+
+    pub fn color(&self) -> Color {
+        match self {
+            Self::Marvelous => Color::LIGHTGOLDENRODYELLOW,
+            Self::Perfect => Color::GOLD,
+            Self::Great => Color::GREEN,
+            Self::Good => Color::BLUE,
+            Self::Okay => Color::PINK,
+            Self::Miss => Color::RED,
+            Self::None => Color::BLANK,
+        }
+    }
+
+    pub fn short_form(&self) -> &str {
+        match self {
+            Self::Marvelous => "MV",
+            Self::Perfect => "PF",
+            Self::Great => "GR",
+            Self::Good => "GD",
+            Self::Okay => "OK",
+            Self::Miss => "MS",
+            Self::None => "",
+        }
+    }
 }
 
 impl fmt::Display for Judgment {
@@ -92,9 +116,9 @@ impl Rating {
         let string = match self {
             Self::X => "X",
             Self::SP => "S+",
-            Self::S => "S!!!",
-            Self::A => "A!!",
-            Self::B => "B!",
+            Self::S => "S",
+            Self::A => "A",
+            Self::B => "B",
             Self::C => "C",
             Self::D => "D",
             Self::F => "F",
