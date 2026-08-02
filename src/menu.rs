@@ -1,7 +1,12 @@
 use crate::{design, models::*, parser};
 use raylib::prelude::*;
 
-pub(crate) fn handle_menu_screen<'a>(d: &mut RaylibDrawHandle, audio_device: &'a RaylibAudio, state: &mut AppState, current_song: &mut Option<Music<'a>>) -> Result<bool, Box<dyn std::error::Error>> {
+pub(crate) fn handle_menu_screen<'a>(
+    d: &mut RaylibDrawHandle,
+    audio_device: &'a RaylibAudio,
+    state: &mut AppState,
+    soundscape: &mut Soundscape<'a>,
+) -> Result<bool, Box<dyn std::error::Error>> {
     let mut draw_label = |text: &str, y_offset: i32| {
         design::draw_text(d, text, Align::Middle, Align::Middle, 20, state.ui.fg, (0, y_offset), &state.ui);
     };
@@ -11,8 +16,26 @@ pub(crate) fn handle_menu_screen<'a>(d: &mut RaylibDrawHandle, audio_device: &'a
         draw_label(&format!("Notes: {}", s.notes.len()), -40);
         draw_label(&s.metadata.name, -20);
 
-        design::draw_text(d, "Hold shift to autoplay", Align::End, Align::Middle, 20, state.ui.fg, (0, 0), &state.ui);
-        design::draw_text(d, "Press space to begin...", Align::Middle, Align::Middle, 30, state.ui.fg, (0, 0), &state.ui);
+        design::draw_text(
+            d,
+            "Hold shift to autoplay",
+            Align::End,
+            Align::Middle,
+            20,
+            state.ui.fg,
+            (0, 0),
+            &state.ui,
+        );
+        design::draw_text(
+            d,
+            "Press space to begin...",
+            Align::Middle,
+            Align::Middle,
+            30,
+            state.ui.fg,
+            (0, 0),
+            &state.ui,
+        );
 
         if d.is_key_pressed(KeyboardKey::KEY_SPACE) {
             state.song_state.timer = 0.;
@@ -25,18 +48,36 @@ pub(crate) fn handle_menu_screen<'a>(d: &mut RaylibDrawHandle, audio_device: &'a
             if let Some(raw_path) = d.load_dropped_files().paths().get(0) {
                 match parser::parse_song_data(&std::path::PathBuf::from(raw_path)) {
                     Ok(song_data) => {
-                        *current_song = Some(audio_device.new_music(&song_data.metadata.song)?);
+                        soundscape.current_song = Some(audio_device.new_music(&song_data.metadata.song)?);
                         state.song_state.song_data = Some(song_data);
                     }
-                    Err(e) => msgbox::create("Error loading map :<", e.to_string().as_str(), msgbox::IconType::Error)?,
+                    Err(e) => println!("Error loading map :< {}", e),
                 };
             }
         }
 
         design::draw_text(d, "q - quit", Align::End, Align::Start, 20, state.ui.fg, (10, -10), &state.ui);
-        design::draw_text(d, "e - settings & info", Align::End, Align::Start, 20, state.ui.fg, (10, -30), &state.ui);
+        design::draw_text(
+            d,
+            "e - settings & info",
+            Align::End,
+            Align::Start,
+            20,
+            state.ui.fg,
+            (10, -30),
+            &state.ui,
+        );
         design::draw_text(d, "[space] - maps", Align::End, Align::Start, 20, state.ui.fg, (10, -50), &state.ui);
-        design::draw_text(d, "acidbox93's tabernacular", Align::Start, Align::End, 50, state.ui.fg, (-10, 10), &state.ui);
+        design::draw_text(
+            d,
+            "acidbox93's tabernacular",
+            Align::Start,
+            Align::End,
+            50,
+            state.ui.fg,
+            (-10, 10),
+            &state.ui,
+        );
         design::draw_text(d, "rhythm game", Align::Start, Align::End, 50, state.ui.fg, (-10, 60), &state.ui);
         design::draw_text(d, "chart player", Align::Start, Align::End, 50, state.ui.fg, (-10, 110), &state.ui);
 
@@ -51,7 +92,16 @@ pub(crate) fn handle_menu_screen<'a>(d: &mut RaylibDrawHandle, audio_device: &'a
         ];
 
         for (i, txt) in nav_texts.iter().rev().enumerate() {
-            design::draw_text(d, txt, Align::End, Align::End, 20, state.ui.fg, (-10, (-20 * i as i32) - 5), &state.ui);
+            design::draw_text(
+                d,
+                txt,
+                Align::End,
+                Align::End,
+                20,
+                state.ui.fg,
+                (-10, (-20 * i as i32) - 5),
+                &state.ui,
+            );
         }
 
         if d.is_key_pressed(KeyboardKey::KEY_Q) {
@@ -70,11 +120,11 @@ pub(crate) fn handle_menu_screen<'a>(d: &mut RaylibDrawHandle, audio_device: &'a
 
 pub fn draw_settings(mut d: RaylibDrawHandle<'_>, state: &mut AppState, option_sfx: &Sound<'_>) {
     if let Some(item) = ConfigItem::items().get(state.interaction.select_offset) {
-        let nav_down = d.is_key_pressed_repeat(state.config.keybinds.left) || d.is_key_pressed(state.config.keybinds.left);
-        let nav_up = d.is_key_pressed_repeat(state.config.keybinds.right) || d.is_key_pressed(state.config.keybinds.right);
-        let mut delta = if nav_down {
+        let nav_l = d.is_key_pressed_repeat(state.config.keybinds.left) || d.is_key_pressed(state.config.keybinds.left);
+        let nav_r = d.is_key_pressed_repeat(state.config.keybinds.right) || d.is_key_pressed(state.config.keybinds.right);
+        let mut delta = if nav_l {
             -1
-        } else if nav_up {
+        } else if nav_r {
             1
         } else {
             0
@@ -92,10 +142,28 @@ pub fn draw_settings(mut d: RaylibDrawHandle<'_>, state: &mut AppState, option_s
 
     for (index, item) in ConfigItem::items().iter().enumerate() {
         let txt = (item.label)(&state);
-        let rect = design::draw_text(&mut d, &txt, Align::Start, Align::Start, 20, state.ui.fg, (10, 10 + index as i32 * 20), &state.ui);
+        let rect = design::draw_text(
+            &mut d,
+            &txt,
+            Align::Start,
+            Align::Start,
+            20,
+            state.ui.fg,
+            (10, 10 + index as i32 * 20),
+            &state.ui,
+        );
         if state.interaction.select_offset == index {
             d.draw_rectangle_lines_ex(rect, 1., state.ui.fg);
-            design::draw_text(&mut d, &item.description, Align::End, Align::End, 20, state.ui.fg, (-10, -10), &state.ui);
+            design::draw_text(
+                &mut d,
+                &item.description,
+                Align::End,
+                Align::End,
+                20,
+                state.ui.fg,
+                (-10, -10),
+                &state.ui,
+            );
         }
     }
 
@@ -105,10 +173,40 @@ pub fn draw_settings(mut d: RaylibDrawHandle<'_>, state: &mut AppState, option_s
     }
 
     if d.is_key_pressed(state.config.keybinds.up) {
-        option_sfx.play();
-        state.interaction.select_offset = state.interaction.select_offset.saturating_sub(1);
+        let s = state.interaction.select_offset.saturating_sub(1);
+        if s != state.interaction.select_offset {
+            option_sfx.play();
+        }
+        state.interaction.select_offset = s;
     }
-    design::draw_text(&mut d, "10x - [left shift]", Align::Start, Align::End, 20, state.ui.fg, (-10, 10), &state.ui);
-    design::draw_text(&mut d, "decrease - [left]", Align::Start, Align::End, 20, state.ui.fg, (-10, 30), &state.ui);
-    design::draw_text(&mut d, "increase - [right]", Align::Start, Align::End, 20, state.ui.fg, (-10, 50), &state.ui);
+    design::draw_text(
+        &mut d,
+        "10x - [left shift]",
+        Align::Start,
+        Align::End,
+        20,
+        state.ui.fg,
+        (-10, 10),
+        &state.ui,
+    );
+    design::draw_text(
+        &mut d,
+        "decrease - [left]",
+        Align::Start,
+        Align::End,
+        20,
+        state.ui.fg,
+        (-10, 30),
+        &state.ui,
+    );
+    design::draw_text(
+        &mut d,
+        "increase - [right]",
+        Align::Start,
+        Align::End,
+        20,
+        state.ui.fg,
+        (-10, 50),
+        &state.ui,
+    );
 }

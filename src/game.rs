@@ -1,8 +1,7 @@
 use crate::{Screens, design, judgment::Judgment, models::*};
 use raylib::prelude::*;
 
-// ALL THE PURELY VISUAL STUFF!!
-pub fn draw_ui(mut d: RaylibDrawHandle<'_>, app_state: &AppState) -> Result<(), Box<dyn std::error::Error>> {
+pub fn draw_notes(d: &mut RaylibDrawHandle<'_>, app_state: &AppState) {
     if let Some(song_data) = &app_state.song_state.song_data {
         let current_visual_time = song_data.get_visual_time(app_state.song_state.song_timer, app_state.song_modifiers.sv);
         let scroll_speed = (app_state.viewport.h as f32 * app_state.config.scroll_speed) / 10.0;
@@ -36,8 +35,21 @@ pub fn draw_ui(mut d: RaylibDrawHandle<'_>, app_state: &AppState) -> Result<(), 
                 app_state.ui.note_height,
                 color,
             );
-        }
 
+            d.draw_rectangle(
+                note_x.0 - app_state.ui.lane_width / 2,
+                note_y - 2,
+                app_state.ui.lane_width,
+                2,
+                app_state.ui.bg,
+            );
+        }
+    }
+}
+
+// ALL THE PURELY VISUAL STUFF!!
+pub fn draw_ui(mut d: RaylibDrawHandle<'_>, app_state: &AppState) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(song_data) = &app_state.song_state.song_data {
         if let Some(last_note) = song_data.notes.last() {
             let complete_ratio = app_state.song_state.song_timer / last_note.time;
             d.draw_rectangle(
@@ -53,6 +65,13 @@ pub fn draw_ui(mut d: RaylibDrawHandle<'_>, app_state: &AppState) -> Result<(), 
                 (complete_ratio * app_state.viewport.w as f32) as i32,
                 app_state.ui.note_height,
                 app_state.ui.bg,
+            );
+            d.draw_rectangle(
+                0,
+                app_state.viewport.h - app_state.ui.note_height,
+                app_state.viewport.w,
+                2,
+                app_state.ui.fg,
             );
 
             let offset = (0, 0);
@@ -216,48 +235,39 @@ pub fn draw_ui(mut d: RaylibDrawHandle<'_>, app_state: &AppState) -> Result<(), 
     Ok(())
 }
 
-pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, app_state: &mut AppState, current_tap: &Option<Sound<'_>>) {
+pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, state: &mut AppState, current_tap: &Option<Sound<'_>>) {
     let mut hitzone_color = Color::GRAY;
-    let mut lane_start_pos: Vector2;
-    let mut lane_end_pos: Vector2;
-    if let Some(song_data) = &mut app_state.song_state.song_data {
-        for (lane, (x_pos, key_code)) in app_state.viewport.lanes.iter().enumerate() {
+    if let Some(song_data) = &mut state.song_state.song_data {
+        for (lane, (x_pos, key_code)) in state.viewport.lanes.iter().enumerate() {
             let acc_lane = lane + 1;
-            lane_start_pos = Vector2::new(
-                *x_pos as f32 - app_state.ui.lane_width as f32 / 2.,
-                app_state.viewport.receptor_y as f32,
-            );
-            lane_end_pos = Vector2::new(
-                *x_pos as f32 + app_state.ui.lane_width as f32 / 2.,
-                app_state.viewport.receptor_y as f32,
-            );
+            let lane_start_pos = *x_pos - state.ui.lane_width / 2;
             if d.is_key_pressed(*key_code) {
                 if let Some(accuracy) = Note::check_note_hit(
                     &mut song_data.notes,
                     acc_lane,
-                    app_state.song_state.song_timer + app_state.config.input_offset,
+                    state.song_state.song_timer + state.config.input_offset,
                 ) {
-                    app_state.song_state.accuracy = accuracy;
+                    state.song_state.accuracy = accuracy;
                     if let Some(note) = song_data.notes.iter_mut().find(|n| {
                         n.lane == acc_lane
                             && (n.state != Judgment::None && n.state != Judgment::Miss)
                             && n.end_time.is_some()
                             && !n.is_holding
-                            && (app_state.song_state.song_timer - n.time).abs() < Judgment::Good.threshold()
+                            && (state.song_state.song_timer - n.time).abs() < Judgment::Good.threshold()
                     }) {
                         note.is_holding = true;
                     }
 
                     if Judgment::from_time(accuracy) == Judgment::Okay {
-                        if app_state.song_state.combo > app_state.song_state.max_combo {
-                            app_state.song_state.max_combo = app_state.song_state.combo
+                        if state.song_state.combo > state.song_state.max_combo {
+                            state.song_state.max_combo = state.song_state.combo
                         }
-                        app_state.song_state.combo = 0;
+                        state.song_state.combo = 0;
                     } else if Judgment::from_time(accuracy) != Judgment::None {
-                        app_state.song_state.combo += 1;
+                        state.song_state.combo += 1;
                     }
                 } else {
-                    app_state.song_state.accuracy = 0.;
+                    state.song_state.accuracy = 0.;
                 }
 
                 if let Some(tap_sfx) = &current_tap {
@@ -270,21 +280,28 @@ pub fn check_inputs(d: &mut RaylibDrawHandle<'_>, app_state: &mut AppState, curr
                 for note in song_data.notes.iter_mut().filter(|n| n.is_holding && n.lane == acc_lane) {
                     let end_t = note.end_time.unwrap_or(note.time);
                     if d.is_key_up(*key_code) {
-                        if app_state.song_state.song_timer < end_t - Judgment::Good.threshold() {
+                        if state.song_state.song_timer < end_t - Judgment::Good.threshold() {
                             note.is_holding = false;
                             note.state = Judgment::Miss;
-                            app_state.song_state.accuracy = 0.;
-                            if app_state.song_state.combo > app_state.song_state.max_combo {
-                                app_state.song_state.max_combo = app_state.song_state.combo
+                            state.song_state.accuracy = 0.;
+                            if state.song_state.combo > state.song_state.max_combo {
+                                state.song_state.max_combo = state.song_state.combo
                             }
-                            app_state.song_state.combo = 0;
-                        } else if app_state.song_state.song_timer >= end_t {
+                            state.song_state.combo = 0;
+                        } else if state.song_state.song_timer >= end_t {
                             note.is_holding = false;
                         }
                     }
                 }
             }
-            d.draw_line_ex(lane_start_pos, lane_end_pos, 10., hitzone_color);
+            d.draw_rectangle(
+                lane_start_pos,
+                state.viewport.receptor_y,
+                state.ui.lane_width,
+                state.viewport.h,
+                hitzone_color,
+            );
+            d.draw_rectangle(lane_start_pos, state.viewport.receptor_y - 2, state.ui.lane_width, 2, state.ui.fg);
         }
     }
 }
@@ -299,7 +316,7 @@ pub fn update_music(app_state: &mut AppState, frame_time: f32, mut current_song:
                     song.seek_stream(app_state.song_state.song_timer);
                 } else {
                     let last_note_time: f32 = if let Some(t) = song_data.notes.last().unwrap().end_time {
-                        if t == 0. { song_data.notes.last().unwrap().time } else { t }
+                        t
                     } else {
                         song_data.notes.last().unwrap().time
                     };
@@ -323,12 +340,11 @@ pub fn update_music(app_state: &mut AppState, frame_time: f32, mut current_song:
 pub fn game_loop(
     mut d: RaylibDrawHandle<'_>,
     mut app_state: &mut AppState,
-    current_tap: &Option<Sound<'_>>,
-    current_song: &Option<Music<'_>>,
+    soundscape: &Soundscape,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // PROGRESS THE SONG AND MANAGE IT
 
-    update_music(&mut app_state, d.get_frame_time(), current_song);
+    update_music(&mut app_state, d.get_frame_time(), &soundscape.current_song);
     for (x_pos, _) in app_state.viewport.lanes.clone() {
         d.draw_rectangle(
             x_pos - app_state.ui.lane_width / 2,
@@ -340,8 +356,8 @@ pub fn game_loop(
     }
 
     // HERE WE DO CHECKING FOR KEY HITS AND DRAWING THE FIELD ZONE DIFFERENTLY
-    check_inputs(&mut d, &mut app_state, current_tap);
-    if let Some(tap_sfx) = &current_tap {
+    check_inputs(&mut d, &mut app_state, &soundscape.current_tap);
+    if let Some(tap_sfx) = &soundscape.current_tap {
         if let Some(song_data) = &mut app_state.song_state.song_data {
             if app_state.song_modifiers.autoplay {
                 for note in song_data.notes.iter_mut() {
@@ -375,6 +391,7 @@ pub fn game_loop(
         }
     }
 
+    draw_notes(&mut d, app_state);
     draw_ui(d, app_state)?;
     Ok(())
 }

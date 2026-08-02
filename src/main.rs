@@ -9,7 +9,7 @@ pub mod parser;
 pub mod results;
 pub mod songs;
 
-fn main_loop(rhl: &mut RaylibHandle, rt:&RaylibThread) -> Result<(), Box<dyn std::error::Error>> {
+fn main_loop(rhl: &mut RaylibHandle, rt: &RaylibThread) -> Result<(), Box<dyn std::error::Error>> {
     let mut state: AppState = AppState::init()?;
 
     state.interaction.tried_loading_charts = !state.config.auto_fetch;
@@ -26,13 +26,14 @@ fn main_loop(rhl: &mut RaylibHandle, rt:&RaylibThread) -> Result<(), Box<dyn std
             state.ui.fonts.push(f);
         }
     }
-
     let audio_device: RaylibAudio = audio::RaylibAudio::init_audio_device()?;
 
-    let mut current_song: Option<Music<'_>> = None;
-    let current_tap: Option<Sound<'_>> = Some(audio_device.new_sound("./hit.wav")?);
-    let option_sfx: Sound<'_> = audio_device.new_sound("./option.wav")?;
-    let cancel_sfx: Sound<'_> = audio_device.new_sound("./cancel.wav")?;
+    let mut soundscape = Soundscape {
+        current_song: None,
+        current_tap: Some(audio_device.new_sound("./hit.wav")?),
+        option_sfx: audio_device.new_sound("./option.wav")?,
+        cancel_sfx: audio_device.new_sound("./cancel.wav")?,
+    };
 
     let fs_starry_field = include_str!("star.fs");
     let mut shader = rhl.load_shader_from_memory(&rt, None, Some(fs_starry_field));
@@ -44,12 +45,12 @@ fn main_loop(rhl: &mut RaylibHandle, rt:&RaylibThread) -> Result<(), Box<dyn std
         state.viewport.h = d.get_screen_height();
         state.viewport.w = d.get_screen_width();
         d.clear_background(Color::BLANK);
-        state.viewport.receptor_y = state.viewport.h - state.ui.note_height;
+        state.viewport.receptor_y = state.viewport.h - state.ui.note_height - 4;
         if d.is_key_pressed(KeyboardKey::KEY_ESCAPE) {
-            cancel_sfx.play();
+            soundscape.cancel_sfx.play();
             state.current_screen = Screens::StartMenu;
             state.song_state = PlayState::new();
-            current_song = None;
+            soundscape.current_song = None;
             state.interaction.chosen_song = None;
             state.interaction.select_offset = 0;
             state.interaction.chosen_difficulty = 0;
@@ -77,11 +78,11 @@ fn main_loop(rhl: &mut RaylibHandle, rt:&RaylibThread) -> Result<(), Box<dyn std
                         })
                         .collect();
 
-                    game::game_loop(d, &mut state, &current_tap, &current_song)?;
+                    game::game_loop(d, &mut state, &soundscape)?;
                 }
             }
             Screens::StartMenu => {
-                let result = menu::handle_menu_screen(&mut d, &audio_device, &mut state, &mut current_song);
+                let result = menu::handle_menu_screen(&mut d, &audio_device, &mut state, &mut soundscape);
                 if let Ok(should_break) = result
                     && should_break
                 {
@@ -90,9 +91,9 @@ fn main_loop(rhl: &mut RaylibHandle, rt:&RaylibThread) -> Result<(), Box<dyn std
                     return Err(err);
                 }
             }
-            Screens::Results => results::draw_results(d, &mut state, &current_song),
-            Screens::Songs => songs::draw_songs(d, &mut state, &mut current_song, &audio_device, &rt)?,
-            Screens::Settings => menu::draw_settings(d, &mut state, &option_sfx),
+            Screens::Results => results::draw_results(d, &mut state, &soundscape.current_song),
+            Screens::Songs => songs::draw_songs(d, &mut state, &mut soundscape, &audio_device, &rt)?,
+            Screens::Settings => menu::draw_settings(d, &mut state, &soundscape.option_sfx),
         }
     }
 
@@ -120,7 +121,13 @@ fn main() {
             let mut d = rhl.begin_drawing(&rt);
             d.clear_background(Color::BLACK);
             d.draw_text("An unrecoverable error has ocurred.", 10, 10, 20, Color::WHITE);
-            d.draw_text("If possible, reopen the game in a terminal and\ntrigger this error again, as to report and fix it.", 10, 30, 20, Color::WHITE);
+            d.draw_text(
+                "If possible, reopen the game in a terminal and\ntrigger this error again, as to report and fix it.",
+                10,
+                30,
+                20,
+                Color::WHITE,
+            );
             d.draw_text(e.as_str(), 10, 90, 20, Color::WHITE);
         }
     }

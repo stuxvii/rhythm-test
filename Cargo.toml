@@ -4,7 +4,6 @@ version = "1.0.0"
 edition = "2024"
 
 [dependencies]
-msgbox = "0.7.0"
 raylib = { version = "6.0.0", features = ["serde", "SUPPORT_FILEFORMAT_JPG"] }
 rayon = "1.12.0"
 serde = { version = "1.0.228", features = ["derive"] }

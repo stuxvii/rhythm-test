@@ -9,7 +9,7 @@ use raylib::prelude::*;
 pub fn draw_songs<'a>(
     mut d: RaylibDrawHandle<'_>,
     state: &mut AppState,
-    current_song: &mut Option<Music<'a>>,
+    soundscape: &mut Soundscape<'a>,
     audio_device: &'a RaylibAudio,
     rt: &RaylibThread,
 ) -> Result<(), Box<dyn Error>> {
@@ -91,6 +91,7 @@ pub fn draw_songs<'a>(
         if d.is_key_pressed(state.config.keybinds.back) {
             state.interaction.chosen_song = None;
             state.interaction.chosen_difficulty = 0;
+            soundscape.cancel_sfx.play();
         }
         if d.is_key_pressed_repeat(state.config.keybinds.left) || d.is_key_pressed(state.config.keybinds.left) {
             if state.song_modifiers.speed >= 0.05 {
@@ -158,7 +159,7 @@ pub fn draw_songs<'a>(
                     let mut music = audio_device.new_music(&song_data.metadata.song)?;
                     music.set_looping(false);
                     music.set_pitch(state.song_modifiers.speed);
-                    *current_song = Some(music);
+                    soundscape.current_song = Some(music);
                     state.song_modifiers.sv = !d.is_key_down(KeyboardKey::KEY_LEFT_CONTROL);
                     state.song_modifiers.autoplay = d.is_key_down(KeyboardKey::KEY_LEFT_SHIFT);
                     state.song_state.song_data = Some(song_data.clone());
@@ -168,8 +169,13 @@ pub fn draw_songs<'a>(
 
             if nav_down && state.interaction.chosen_difficulty < data.difficulties.len() - 1 {
                 state.interaction.chosen_difficulty += 1;
+                soundscape.option_sfx.play();
             }
             if nav_up {
+                let s = state.interaction.chosen_difficulty.saturating_sub(1);
+                if s != state.interaction.chosen_difficulty {
+                    soundscape.option_sfx.play();
+                }
                 state.interaction.chosen_difficulty = state.interaction.chosen_difficulty.saturating_sub(1);
             }
         } else {
@@ -189,15 +195,21 @@ pub fn draw_songs<'a>(
                     &chart.banner_texture,
                     idx == state.interaction.select_offset,
                 ) {
+                    soundscape.option_sfx.play();
                     state.interaction.chosen_song = Some(idx);
                 }
             }
 
             if nav_down && state.interaction.select_offset < state.charts.len() - 1 {
                 state.interaction.select_offset += 1;
+                soundscape.option_sfx.play();
             }
             if nav_up {
-                state.interaction.select_offset = state.interaction.select_offset.saturating_sub(1);
+                let s = state.interaction.select_offset.saturating_sub(1);
+                if s != state.interaction.select_offset {
+                    soundscape.option_sfx.play();
+                }
+                state.interaction.select_offset = s;
             }
         }
     }

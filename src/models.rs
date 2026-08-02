@@ -46,7 +46,11 @@ impl Note {
             return false;
         }
 
-        let target_time = if self.end_time.is_some_and(|a| a != 0.) { self.end_time.unwrap_or(self.time) } else { self.time };
+        let target_time = if self.end_time.is_some_and(|a| a != 0.) {
+            self.end_time.unwrap_or(self.time)
+        } else {
+            self.time
+        };
 
         self.state == Judgment::None && current_time > target_time + Judgment::Miss.threshold()
     }
@@ -116,7 +120,11 @@ impl ChartData {
             return time;
         }
         let point = &self.computed_sv[iidx - 1];
-        if sv { point.visual_pos + (time - point.start_time) * point.multiplier } else { time }
+        if sv {
+            point.visual_pos + (time - point.start_time) * point.multiplier
+        } else {
+            time
+        }
     }
     pub fn get_bpm(&self, time: f32) -> f32 {
         let iidx = self.bpm.partition_point(|s| s.start_time <= time);
@@ -148,6 +156,13 @@ impl Default for Interaction {
     }
 }
 
+pub struct Soundscape<'a> {
+    pub current_song: Option<Music<'a>>,
+    pub current_tap: Option<Sound<'a>>,
+    pub option_sfx: Sound<'a>,
+    pub cancel_sfx: Sound<'a>,
+}
+
 pub struct AppState {
     pub config: GameConfig,
     pub viewport: Viewport,
@@ -161,14 +176,26 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(viewport: Viewport, song_modifiers: SongModifiers, song_state: PlayState, current_screen: Screens, ui: UIElements, config: GameConfig) -> Self {
+    pub fn new(
+        viewport: Viewport,
+        song_modifiers: SongModifiers,
+        song_state: PlayState,
+        current_screen: Screens,
+        ui: UIElements,
+        config: GameConfig,
+    ) -> Self {
         AppState {
             viewport,
             charts: vec![],
             song_state,
             current_screen,
             interaction: Interaction::default(),
-            keys: vec![config.keybinds.left, config.keybinds.down, config.keybinds.up, config.keybinds.right],
+            keys: vec![
+                config.keybinds.left,
+                config.keybinds.down,
+                config.keybinds.up,
+                config.keybinds.right,
+            ],
             ui,
             config,
             song_modifiers,
@@ -188,8 +215,12 @@ impl AppState {
             shadow: true,
         };
         let result = AppState::new(
-            Viewport::new(0, 0, vec![], 0),
-            SongModifiers { autoplay: false, sv: true, speed: 1. },
+            Viewport::new(0, 0, vec![], 40),
+            SongModifiers {
+                autoplay: false,
+                sv: true,
+                speed: 1.,
+            },
             PlayState::new(),
             Screens::StartMenu,
             ui,
@@ -316,7 +347,12 @@ pub struct Viewport {
 
 impl Viewport {
     pub fn new(w: i32, h: i32, l: Vec<(i32, KeyboardKey)>, r: i32) -> Viewport {
-        Viewport { w, h, lanes: l, receptor_y: r }
+        Viewport {
+            w,
+            h,
+            lanes: l,
+            receptor_y: r,
+        }
     }
 }
 
